@@ -53,9 +53,9 @@ where
     //     self
     // }
 
-    /// Build and initialize the server. Returns the base router and a future to run
+    /// Build and initialize the server. Returns the base router, finalized state, and a future to run
     /// on graceful shutdown.
-    pub async fn init(mut self) -> anyhow::Result<(Router, impl Future + Send)>
+    pub async fn init(mut self) -> anyhow::Result<(Router<S>, S, impl Future + Send)>
     where
         S::Error: Display,
     {
@@ -77,7 +77,7 @@ where
             .filter_map(|mut p| p.on_shutdown(&state));
         let on_shutdown = join_all(shutdown_fns);
 
-        Ok((router.with_state(state), on_shutdown))
+        Ok((router, state, on_shutdown))
     }
 }
 
