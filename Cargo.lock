@@ -53,8 +53,18 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-app-wrapper-macros",
  "futures",
  "type-map",
+]
+
+[[package]]
+name = "axum-app-wrapper-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

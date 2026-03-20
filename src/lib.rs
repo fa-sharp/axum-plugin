@@ -8,7 +8,22 @@ use futures::{
     FutureExt,
     future::{BoxFuture, join_all},
 };
-use type_map::concurrent::TypeMap;
+
+// State extraction utilities
+
+pub use axum_app_wrapper_macros::AppState;
+pub use type_map::concurrent::TypeMap;
+
+/// Extracts a value of type `T` from a [`TypeMap`], returning an Anyhow error if the type is not present.
+///
+/// This is used internally by the [`AppState`] macro but is also available for manual
+/// [`TryFrom<TypeMap>`] implementations.
+pub fn extract_type_field<T: Send + Sync + 'static>(map: &mut TypeMap) -> anyhow::Result<T> {
+    map.remove::<T>()
+        .ok_or_else(|| anyhow!("Missing type in TypeMap: {}", std::any::type_name::<T>()))
+}
+
+// Plugin system
 
 /// A lightweight wrapper around axum that enables building plugins around the router
 pub struct App<S = Arc<TypeMap>> {
