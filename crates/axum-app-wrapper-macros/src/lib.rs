@@ -20,12 +20,14 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 ///     pool: Pool,
 ///     db: Db,
 /// }
+/// // To wrap the whole state in `Arc`, implement `TryFrom<TypeMap>` for `Arc<AppState>`:
+/// impl TryFrom<TypeMap> for Arc<AppState> {
+///     type Error = anyhow::Error;
 ///
-/// // Plain state — axum will clone the whole struct on each request:
-/// App::<AppState>::new()
-///
-/// // Or wrap in Arc yourself for cheap clones:
-/// App::<Arc<AppState>>::new()
+///     fn try_from(map: TypeMap) -> Result<Self, Self::Error> {
+///         Ok(Self(Arc::new(AppState::try_from(map)?)))
+///     }
+/// }
 /// ```
 #[proc_macro_derive(AppState)]
 pub fn derive_app_state(input: TokenStream) -> TokenStream {
