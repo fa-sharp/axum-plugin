@@ -1,4 +1,31 @@
 #![allow(clippy::type_complexity)]
+//! A small plugin layer for [`axum`](https://docs.rs/axum/latest/axum/) applications.
+//!
+//! `axum-app-wrapper` lets plugins contribute startup state, router setup, and shutdown work
+//! around an `axum::Router`.
+//!
+//! Lifecycle:
+//!
+//! 1. [`AppPlugin::on_init`] runs in registration order and builds a [`TypeMap`].
+//! 2. The `TypeMap` is converted into the app state `S` with `TryFrom<TypeMap>`.
+//! 3. [`AppPlugin::on_setup`] runs in registration order and receives `Router<S>` plus `&S`.
+//! 4. The returned shutdown future runs [`AppPlugin::on_shutdown`] consecutively in reverse
+//!    registration order.
+//!
+//! For one-off plugins, use [`AdHocPlugin`]. If the setup closure needs access to typed state,
+//! spell the state type at construction time so Rust can infer the closure parameters:
+//!
+//! ```ignore
+//! let plugin = AdHocPlugin::<AppState>::new()
+//!     .on_init(async |mut state| {
+//!         state.insert(config);
+//!         Ok(state)
+//!     })
+//!     .on_setup(|router, state| {
+//!         let config = state.config.clone();
+//!         Ok(router.layer(axum::Extension(config)))
+//!     });
+//! ```
 
 use std::{fmt::Display, sync::Arc};
 
@@ -22,7 +49,7 @@ pub fn extract_type_field<T: Send + Sync + 'static>(map: &mut TypeMap) -> anyhow
 
 // Plugin system
 
-/// A lightweight wrapper around axum that enables building plugins around the router
+/// An axum app builder with plugin-managed state, router setup, and shutdown hooks.
 pub struct App<S = Arc<TypeMap>> {
     base_router: Router<S>,
     plugins: Vec<Box<dyn AppPlugin<S>>>,
@@ -33,7 +60,7 @@ impl<S> App<S>
 where
     S: TryFrom<TypeMap> + Clone + Send + Sync + 'static,
 {
-    /// Create a new server with the given routes.
+    /// Create an empty app.
     pub fn new() -> Self {
         Self {
             base_router: Router::new(),
@@ -42,8 +69,10 @@ where
         }
     }
 
-    /// Register a plugin. This can be considered analogous to axum/tower's `layer` function
-    /// and follows the same ordering (each plugin "wraps" the previous one).
+    /// Register a plugin.
+    ///
+    /// `on_init` and `on_setup` run in registration order. Shutdown runs in reverse registration
+    /// order, awaiting each hook before starting the next.
     pub fn register(mut self, plugin: impl AppPlugin<S> + 'static) -> Self {
         self.plugins.push(Box::new(plugin));
         self
@@ -65,8 +94,9 @@ where
     //     self
     // }
 
-    /// Build and initialize the server. Returns the base router, finalized state, and a future to run
-    /// on graceful shutdown.
+    /// Build the router, finalized state, and graceful shutdown future.
+    ///
+    /// The returned shutdown future must be awaited by the caller when the server is shutting down.
     pub async fn init(mut self) -> anyhow::Result<(Router<S>, S, impl Future + Send)>
     where
         S::Error: Display,
@@ -99,27 +129,35 @@ where
     }
 }
 
-/// Trait for a plugin that can be attached to the server
+/// A plugin that can participate in app initialization, router setup, and shutdown.
 #[allow(unused_variables, reason = "trait functions with default no-op")]
 pub trait AppPlugin<S = Arc<TypeMap>> {
-    /// Init function that will run on server startup. Can add and manipulate state.
+    /// Run during startup before typed state exists.
+    ///
+    /// Use this hook to insert or transform values in the shared [`TypeMap`].
     fn on_init(&mut self, app_state: TypeMap) -> BoxFuture<'static, anyhow::Result<TypeMap>> {
         async { Ok(app_state) }.boxed()
     }
 
-    /// Setup function that will run _after_ state is initialized (e.g. routes, middleware,
-    /// and services should be added here)
+    /// Run after typed state has been created.
+    ///
+    /// Use this hook to add routes, services, middleware, or router state.
     fn on_setup(&mut self, router: Router<S>, state: &S) -> anyhow::Result<Router<S>> {
         Ok(router)
     }
 
-    /// Teardown function that will run on server shutdown
+    /// Return shutdown work for this plugin.
+    ///
+    /// Shutdown hooks are awaited consecutively in reverse registration order.
     fn on_shutdown(&mut self, state: &S) -> Option<BoxFuture<'static, ()>> {
         None
     }
 }
 
-/// Utility to build a plugin on the fly
+/// A closure-based plugin for application-local setup.
+///
+/// `on_init` and `on_setup` accept capturing closures. If `on_setup` uses typed state, prefer
+/// `AdHocPlugin::<State>::new()` so the closure parameter type can be inferred.
 pub struct AdHocPlugin<S = Arc<TypeMap>> {
     on_init: Option<Box<dyn FnOnce(TypeMap) -> BoxFuture<'static, anyhow::Result<TypeMap>> + Send>>,
     on_setup: Option<Box<dyn FnOnce(Router<S>, &S) -> anyhow::Result<Router<S>> + Send>>,
@@ -127,6 +165,7 @@ pub struct AdHocPlugin<S = Arc<TypeMap>> {
 }
 
 impl<S: 'static> AdHocPlugin<S> {
+    /// Create an empty ad-hoc plugin.
     pub fn new() -> Self {
         Self {
             on_init: None,
@@ -135,7 +174,7 @@ impl<S: 'static> AdHocPlugin<S> {
         }
     }
 
-    /// Init function that will run on server startup. Can add and manipulate state.
+    /// Set startup state initialization for this plugin.
     pub fn on_init<F, T>(mut self, on_init: F) -> Self
     where
         F: FnOnce(TypeMap) -> T + Send + 'static,
@@ -145,8 +184,7 @@ impl<S: 'static> AdHocPlugin<S> {
         self
     }
 
-    /// Setup function that will run _after_ state is initialized. (e.g. routes, middleware,
-    /// and services should be added here)
+    /// Set router setup for this plugin.
     pub fn on_setup<F>(mut self, on_setup: F) -> Self
     where
         F: FnOnce(Router<S>, &S) -> anyhow::Result<Router<S>> + Send + 'static,
@@ -155,7 +193,7 @@ impl<S: 'static> AdHocPlugin<S> {
         self
     }
 
-    /// Teardown function that will run on server shutdown
+    /// Set shutdown work for this plugin.
     pub fn on_shutdown<T>(mut self, on_shutdown: fn(state: &S) -> T) -> Self
     where
         T: Future<Output = ()> + Send + 'static,
