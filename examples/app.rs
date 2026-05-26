@@ -42,8 +42,9 @@ async fn main() -> anyhow::Result<()> {
     });
     let metrics_registry = Arc::new(Metrics::new());
 
+    // Create your plugins using AdHocPlugin
     let config_plugin = AdHocPlugin::<AppState>::new()
-        .on_init(async move |mut state| {
+        .on_init(async |mut state| {
             state.insert(config);
             Ok(state)
         })
@@ -53,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
         });
 
     let metrics_plugin = AdHocPlugin::<AppState>::new()
-        .on_init(async move |mut state| {
+        .on_init(async |mut state| {
             state.insert(metrics_registry);
             Ok(state)
         })
@@ -69,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
             }
         });
 
+    // Register your plugins in the desired order
     let app = App::<AppState>::new()
         .register(config_plugin)
         .register(metrics_plugin);
@@ -79,12 +81,13 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
+    // Start the axum server with graceful shutdown
     axum::serve(listener, router)
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c()
                 .await
                 .expect("failed to listen for ctrl-c");
-            on_shutdown.await;
+            on_shutdown.await; // Run the on_shutdown future for graceful shutdown
         })
         .await?;
 
