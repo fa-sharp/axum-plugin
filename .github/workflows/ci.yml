@@ -20,7 +20,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
 
       - name: cargo check
-        run: cargo check --examples
+        run: cargo check --examples --frozen
 
       - name: cargo build
-        run: cargo build --examples
+        run: cargo build --examples --frozen
