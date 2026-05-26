@@ -119,7 +119,7 @@ pub trait AppPlugin<S = Arc<TypeMap>> {
 /// Utility to build a plugin on the fly
 pub struct AdHocPlugin<S = Arc<TypeMap>> {
     on_init: Option<Box<dyn FnOnce(TypeMap) -> BoxFuture<'static, anyhow::Result<TypeMap>> + Send>>,
-    on_setup: Option<fn(router: Router<S>, state: &S) -> anyhow::Result<Router<S>>>,
+    on_setup: Option<Box<dyn FnOnce(Router<S>, &S) -> anyhow::Result<Router<S>> + Send>>,
     on_shutdown: Option<Box<dyn FnOnce(&S) -> BoxFuture<'static, ()>>>,
 }
 
@@ -133,8 +133,9 @@ impl<S: 'static> AdHocPlugin<S> {
     }
 
     /// Init function that will run on server startup. Can add and manipulate state.
-    pub fn on_init<T>(mut self, on_init: fn(app_state: TypeMap) -> T) -> Self
+    pub fn on_init<F, T>(mut self, on_init: F) -> Self
     where
+        F: FnOnce(TypeMap) -> T + Send + 'static,
         T: Future<Output = anyhow::Result<TypeMap>> + Send + 'static,
     {
         self.on_init = Some(Box::new(move |s| Box::pin(on_init(s))));
@@ -143,11 +144,11 @@ impl<S: 'static> AdHocPlugin<S> {
 
     /// Setup function that will run _after_ state is initialized. (e.g. routes, middleware,
     /// and services should be added here)
-    pub fn on_setup(
-        mut self,
-        on_setup: fn(router: Router<S>, state: &S) -> anyhow::Result<Router<S>>,
-    ) -> Self {
-        self.on_setup = Some(on_setup);
+    pub fn on_setup<F>(mut self, on_setup: F) -> Self
+    where
+        F: FnOnce(Router<S>, &S) -> anyhow::Result<Router<S>> + Send + 'static,
+    {
+        self.on_setup = Some(Box::new(on_setup));
         self
     }
 
@@ -170,7 +171,7 @@ impl<S> AppPlugin<S> for AdHocPlugin<S> {
     }
 
     fn on_setup(&mut self, router: Router<S>, state: &S) -> anyhow::Result<Router<S>> {
-        match self.on_setup {
+        match self.on_setup.take() {
             Some(setup_fn) => setup_fn(router, state),
             None => Ok(router),
         }
@@ -181,5 +182,49 @@ impl<S> AppPlugin<S> for AdHocPlugin<S> {
             Some(shutdown_fn) => Some(shutdown_fn(state)),
             None => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestState {
+        value: Arc<String>,
+    }
+
+    impl TryFrom<TypeMap> for TestState {
+        type Error = Infallible;
+
+        fn try_from(mut map: TypeMap) -> Result<Self, Self::Error> {
+            Ok(Self {
+                value: map.remove::<Arc<String>>().expect("missing state value"),
+            })
+        }
+    }
+
+    #[test]
+    fn adhoc_plugin_with_basic_state() {
+        let init_value = Arc::new(String::from("ready"));
+        let setup_value = Arc::clone(&init_value);
+
+        let plugin = AdHocPlugin::<TestState>::new()
+            .on_init(async |mut state| {
+                state.insert(init_value);
+                Ok(state)
+            })
+            .on_setup(move |router, state| {
+                assert_eq!(state.value.as_str(), setup_value.as_str());
+                Ok(router)
+            });
+        let app = App::<TestState>::new().register(plugin);
+
+        let (_router, state, _shutdown) =
+            futures::executor::block_on(app.init()).expect("app should initialize");
+
+        assert_eq!(state.value.as_str(), "ready");
     }
 }
