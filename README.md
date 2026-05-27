@@ -17,12 +17,32 @@ This crate is intentionally thin. It does not replace axum's router, extractors,
 1. `on_init` in registration order, passing a `TypeMap` to build state.
 2. `S::try_from(TypeMap)` to build the final typed app state.
 3. `on_setup` in registration order, passing `Router<S>` and `&S`.
-4. `on_shutdown` consecutively in reverse registration order: the last registered plugin shuts down first, and each hook finishes before the next one starts.
+4. `InitializedApp::shutdown()` runs `on_shutdown` consecutively in reverse registration order: the last registered plugin shuts down first, and each hook finishes before the next one starts.
 
 
 ## Example
 See the `examples` folder for full examples.
 
+`App::init()` returns an initialized app handle. Use `router()` to get a ready-to-serve `Router<()>`, `state()` to inspect the finalized state, and `shutdown()` from your graceful shutdown path:
+
+```rust
+let app = App::<AppState>::new()
+    .store(config)
+    .route("/health", axum::routing::get(health))
+    .register(metrics_plugin)
+    .init()
+    .await?;
+
+let router = app.router();
+let service_name = &app.state().config.service_name;
+
+axum::serve(listener, router)
+    .with_graceful_shutdown(async move {
+        tokio::signal::ctrl_c().await.expect("failed to listen for ctrl-c");
+        app.shutdown().await.expect("failed to shut down");
+    })
+    .await?;
+```
 
 For `on_setup` closures that access typed state, construct the plugin as
 `AdHocPlugin::<AppState>::new()`. That gives Rust enough context to infer the `state` parameter:
@@ -41,15 +61,15 @@ Implement `AppPlugin<S>` directly when setup should be reusable across apps:
 
 ```rust
 use axum::Router;
-use axum_app_wrapper::{AppPlugin, TypeMap};
-use futures::{future::BoxFuture, FutureExt};
+use axum_app_wrapper::{AppPlugin, InitFuture, Result, TypeMap};
+use futures::FutureExt;
 
 struct ConfigPlugin {
     config: Config,
 }
 
 impl AppPlugin<AppState> for ConfigPlugin {
-    fn on_init(&mut self, mut state: TypeMap) -> BoxFuture<'static, anyhow::Result<TypeMap>> {
+    fn on_init(&mut self, mut state: TypeMap) -> InitFuture {
         let config = self.config.clone();
         async move {
             state.insert(config);
@@ -62,7 +82,7 @@ impl AppPlugin<AppState> for ConfigPlugin {
         &mut self,
         router: Router<AppState>,
         _state: &AppState,
-    ) -> anyhow::Result<Router<AppState>> {
+    ) -> Result<Router<AppState>> {
         Ok(router.route("/health", axum::routing::get(health)))
     }
 }

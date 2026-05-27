@@ -67,27 +67,30 @@ async fn main() -> anyhow::Result<()> {
             let metrics = Arc::clone(&state.metrics);
             async move {
                 metrics.flush().await;
+                Ok(())
             }
         });
 
-    // Register your plugins in the desired order
+    // Register your plugins in the desired order, and initialize the app
     let app = App::<AppState>::new()
         .register(config_plugin)
-        .register(metrics_plugin);
-
-    let (router, state, on_shutdown) = app.init().await?;
-    let router = router.with_state(state);
+        .register(metrics_plugin)
+        .init()
+        .await?;
+    tracing::info!(service = %app.state().config.service_name, "starting server");
 
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     // Start the axum server with graceful shutdown
-    axum::serve(listener, router)
+    axum::serve(listener, app.router())
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c()
                 .await
                 .expect("failed to listen for ctrl-c");
-            on_shutdown.await; // Run the on_shutdown future for graceful shutdown
+            app.shutdown()
+                .await
+                .expect("failed to run graceful shutdown");
         })
         .await?;
 

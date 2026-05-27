@@ -22,10 +22,10 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 /// }
 /// // To wrap the whole state in `Arc`, implement `TryFrom<TypeMap>` for `Arc<AppState>`:
 /// impl TryFrom<TypeMap> for Arc<AppState> {
-///     type Error = anyhow::Error;
+///     type Error = axum_app_wrapper::Error;
 ///
 ///     fn try_from(map: TypeMap) -> Result<Self, Self::Error> {
-///         Ok(Self(Arc::new(AppState::try_from(map)?)))
+///         Ok(Arc::new(AppState::try_from(map)?))
 ///     }
 /// }
 /// ```
@@ -57,10 +57,11 @@ pub fn derive_app_state(input: TokenStream) -> TokenStream {
     };
 
     let field_names = fields.iter().map(|f| &f.ident);
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl ::std::convert::TryFrom<::axum_app_wrapper::TypeMap> for #name {
-            type Error = ::anyhow::Error;
+        impl #impl_generics ::std::convert::TryFrom<::axum_app_wrapper::TypeMap> for #name #ty_generics #where_clause {
+            type Error = ::axum_app_wrapper::Error;
 
             fn try_from(mut map: ::axum_app_wrapper::TypeMap) -> ::std::result::Result<Self, Self::Error> {
                 Ok(#name {
