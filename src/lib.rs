@@ -28,8 +28,9 @@
 
 extern crate self as axum_app_wrapper;
 
-use std::{fmt::Display, sync::Arc};
+use std::{borrow::Cow, fmt::Display, sync::Arc};
 
+use anyhow::Context;
 use axum::{Router, routing::MethodRouter};
 use futures::{FutureExt, future::BoxFuture};
 
@@ -104,7 +105,8 @@ where
         self
     }
 
-    /// Mount routes at the given path before plugins run setup.
+    /// Mount routes at the given path before any setup hooks run. Prefer mounting most
+    /// routes within plugins.
     pub fn mount(mut self, path: &str, router: Router<S>) -> Self {
         self.base_router = match path {
             "" | "/" => self.base_router.merge(router),
@@ -113,7 +115,7 @@ where
         self
     }
 
-    /// Store a startup value for the final state conversion step.
+    /// Store a value in router state.
     pub fn store<T: Send + Sync + 'static>(mut self, state: T) -> Self {
         self.state.insert(state);
         self
@@ -135,7 +137,10 @@ where
     {
         let mut state = self.state;
         for plugin in self.plugins.iter_mut() {
-            state = plugin.on_init(state).await?;
+            state = plugin
+                .on_init(state)
+                .await
+                .with_context(|| format!("Error in on_init hook of plugin '{}'", plugin.name()))?;
         }
 
         let state =
@@ -143,18 +148,22 @@ where
 
         let mut router = self.base_router;
         for plugin in self.plugins.iter_mut() {
-            router = plugin.on_setup(router, &state)?;
+            router = plugin
+                .on_setup(router, &state)
+                .with_context(|| format!("Error in on_setup hook of plugin '{}'", plugin.name()))?;
         }
 
         let shutdown_fns: Vec<_> = self
             .plugins
             .into_iter()
             .rev()
-            .filter_map(|mut p| p.on_shutdown(&state))
+            .filter_map(|mut p| Some((p.name(), p.on_shutdown(&state)?)))
             .collect();
         let on_shutdown = async move {
-            for shutdown_fn in shutdown_fns {
-                shutdown_fn.await?;
+            for (plugin_name, shutdown_fn) in shutdown_fns {
+                shutdown_fn.await.with_context(|| {
+                    format!("Error in on_shutdown hook of plugin '{plugin_name}'")
+                })?;
             }
             Ok(())
         }
@@ -212,6 +221,11 @@ where
 /// A plugin that can participate in app initialization, router setup, and shutdown.
 #[allow(unused_variables, reason = "trait functions with default no-op")]
 pub trait AppPlugin<S = TypeMapState> {
+    /// Plugin name
+    fn name(&self) -> Cow<'static, str> {
+        Cow::Borrowed(std::any::type_name::<Self>())
+    }
+
     /// Run during startup before typed state exists.
     ///
     /// Use this hook to insert or transform values in the shared [`TypeMap`].
@@ -239,6 +253,7 @@ pub trait AppPlugin<S = TypeMapState> {
 /// `on_init` and `on_setup` accept capturing closures. If `on_setup` uses typed state, prefer
 /// `AdHocPlugin::<State>::new()` so the closure parameter type can be inferred.
 pub struct AdHocPlugin<S = TypeMapState> {
+    name: Cow<'static, str>,
     on_init: Option<InitFn>,
     on_setup: Option<SetupFn<S>>,
     on_shutdown: Option<ShutdownFn<S>>,
@@ -249,9 +264,20 @@ type SetupFn<S> = Box<dyn FnOnce(Router<S>, &S) -> Result<Router<S>> + Send>;
 type ShutdownFn<S> = Box<dyn FnOnce(&S) -> ShutdownFuture + Send>;
 
 impl<S: 'static> AdHocPlugin<S> {
-    /// Create an empty ad-hoc plugin.
+    /// Create an ad-hoc plugin. Prefer `named()` to help with debugging.
     pub fn new() -> Self {
         Self {
+            name: Cow::Borrowed("adhoc"),
+            on_init: None,
+            on_setup: None,
+            on_shutdown: None,
+        }
+    }
+
+    /// Create a named ad-hoc plugin.
+    pub fn named(name: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            name: name.into(),
             on_init: None,
             on_setup: None,
             on_shutdown: None,
@@ -295,6 +321,10 @@ impl<S: 'static> Default for AdHocPlugin<S> {
 }
 
 impl<S> AppPlugin<S> for AdHocPlugin<S> {
+    fn name(&self) -> Cow<'static, str> {
+        self.name.clone()
+    }
+
     fn on_init(&mut self, app_state: TypeMap) -> InitFuture {
         match self.on_init.take() {
             Some(init_fn) => async move { init_fn(app_state).await }.boxed(),
