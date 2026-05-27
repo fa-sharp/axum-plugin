@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     let metrics_registry = Arc::new(Metrics::new());
 
     // Create your plugins using AdHocPlugin
-    let config_plugin = AdHocPlugin::<AppState>::new()
+    let config_plugin = AdHocPlugin::<AppState>::named("Config")
         .on_init(async |mut state| {
             state.insert(config);
             Ok(state)
@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(router.route("/health", get(health)))
         });
 
-    let metrics_plugin = AdHocPlugin::<AppState>::new()
+    let metrics_plugin = AdHocPlugin::<AppState>::named("Metrics")
         .on_init(async |mut state| {
             state.insert(metrics_registry);
             Ok(state)

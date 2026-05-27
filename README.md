@@ -1,6 +1,6 @@
 # axum-app-wrapper
 
-A small plugin layer for `axum` applications, inspired by [fastify](https://fastify.dev/) from the Node/JS ecosystem.
+A small plugin layer for `axum` applications, inspired by [fastify](https://fastify.dev/) from the Node/JS ecosystem and the [rocket](https://rocket.rs/) framework.
 
 Plugins can:
 
