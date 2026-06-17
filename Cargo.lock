@@ -48,28 +48,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-app-wrapper"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "axum",
- "axum-app-wrapper-macros",
- "futures",
- "tokio",
- "tracing",
- "type-map",
-]
-
-[[package]]
-name = "axum-app-wrapper-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "axum-core"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -86,6 +64,28 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-plugin"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "axum-plugin-macros",
+ "futures",
+ "tokio",
+ "tracing",
+ "type-map",
+]
+
+[[package]]
+name = "axum-plugin-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

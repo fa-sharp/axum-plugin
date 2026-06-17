@@ -26,7 +26,7 @@
 //!     });
 //! ```
 
-extern crate self as axum_app_wrapper;
+extern crate self as axum_plugin;
 
 use std::{borrow::Cow, fmt::Display, sync::Arc};
 
@@ -34,7 +34,7 @@ use anyhow::Context;
 use axum::{Router, routing::MethodRouter};
 use futures::{FutureExt, future::BoxFuture};
 
-pub use axum_app_wrapper_macros::AppState;
+pub use axum_plugin_macros::AppState;
 pub use type_map::concurrent::TypeMap;
 
 pub use anyhow;

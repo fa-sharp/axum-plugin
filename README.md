@@ -1,4 +1,4 @@
-# axum-app-wrapper
+# axum-plugin
 
 A small plugin layer for `axum` applications, inspired by [fastify](https://fastify.dev/) from the Node/JS ecosystem and the [rocket](https://rocket.rs/) framework.
 
@@ -61,7 +61,7 @@ Implement `AppPlugin<S>` directly when setup should be reusable across apps:
 
 ```rust
 use axum::Router;
-use axum_app_wrapper::{AppPlugin, InitFuture, Result, TypeMap};
+use axum_plugin::{AppPlugin, InitFuture, Result, TypeMap};
 use futures::FutureExt;
 
 struct ConfigPlugin {

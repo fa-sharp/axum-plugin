@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{Extension, extract::State, routing::get};
-use axum_app_wrapper::{AdHocPlugin, App, AppState};
+use axum_plugin::{AdHocPlugin, App, AppState};
 
 #[derive(Clone, AppState)]
 struct AppState {

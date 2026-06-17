@@ -1,6 +1,6 @@
 [package]
-name = "axum-app-wrapper"
-version = "0.1.2"
+name = "axum-plugin"
+version = "0.2.0"
 edition = "2024"
 
 [workspace]
@@ -10,7 +10,7 @@ members = [".", "crates/*"]
 [dependencies]
 anyhow = "1.0"
 axum = "0.8"
-axum-app-wrapper-macros = { path = "crates/axum-app-wrapper-macros" }
+axum-plugin-macros = { path = "crates/macros" }
 futures = "0.3"
 type-map = "0.5"
 
