@@ -212,9 +212,9 @@ where
         (self.router, self.state, self.on_shutdown)
     }
 
-    /// Run graceful shutdown work for all plugins.
-    pub async fn shutdown(self) -> Result<()> {
-        self.on_shutdown.await
+    /// Return the future that runs shutdown for all plugins. Consumes the app.
+    pub fn shutdown(self) -> ShutdownFuture {
+        self.on_shutdown
     }
 }
 
@@ -226,15 +226,13 @@ pub trait AppPlugin<S = TypeMapState> {
         Cow::Borrowed(std::any::type_name::<Self>())
     }
 
-    /// Run during startup before typed state exists.
-    ///
+    /// Runs during startup before typed state exists.
     /// Use this hook to insert or transform values in the shared [`TypeMap`].
     fn on_init(&mut self, app_state: TypeMap) -> InitFuture {
         async { Ok(app_state) }.boxed()
     }
 
-    /// Run after typed state has been created.
-    ///
+    /// Runs after typed state has been created.
     /// Use this hook to add routes, services, middleware, or router state.
     fn on_setup(&mut self, router: Router<S>, state: &S) -> Result<Router<S>> {
         Ok(router)
@@ -284,7 +282,8 @@ impl<S: 'static> AdHocPlugin<S> {
         }
     }
 
-    /// Set startup state initialization for this plugin.
+    /// Runs during startup before typed state exists.
+    /// Use this hook to insert or transform values in the shared [`TypeMap`].
     pub fn on_init<F, T>(mut self, on_init: F) -> Self
     where
         F: FnOnce(TypeMap) -> T + Send + 'static,
@@ -294,7 +293,8 @@ impl<S: 'static> AdHocPlugin<S> {
         self
     }
 
-    /// Set router setup for this plugin.
+    /// Runs after typed state has been created.
+    /// Use this hook to add routes, services, middleware, or router state.
     pub fn on_setup<F>(mut self, on_setup: F) -> Self
     where
         F: FnOnce(Router<S>, &S) -> Result<Router<S>> + Send + 'static,
