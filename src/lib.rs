@@ -99,7 +99,8 @@ where
         }
     }
 
-    /// Add a route to the base router before plugins run setup.
+    /// Add a route to the base router before any setup hooks run. Prefer mounting most
+    /// routes within plugins.
     pub fn route(mut self, path: &str, method_router: MethodRouter<S>) -> Self {
         self.base_router = self.base_router.route(path, method_router);
         self
