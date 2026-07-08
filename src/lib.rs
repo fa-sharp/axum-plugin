@@ -17,7 +17,6 @@ pub use figment;
 
 use crate::plugin::{InitApp, SetupApp, ShutdownApp};
 
-pub mod config;
 pub mod plugin;
 pub mod utils;
 
@@ -58,8 +57,8 @@ impl<S> App<S, ()>
 where
     S: TryFrom<TypeMap> + Clone + Send + Sync + 'static,
 {
-    /// Create an empty app.
-    pub fn new() -> Self {
+    /// Create an empty app (useful for testing only)
+    fn new() -> Self {
         Self {
             base_router: Router::new(),
             config: Arc::new(()),
@@ -76,10 +75,14 @@ where
 {
     /// Create an empty app with preloaded config.
     pub fn with_config(config: C) -> Self {
+        let mut state = TypeMap::new();
+        let config = Arc::new(config);
+        state.insert(Arc::clone(&config));
+
         Self {
             base_router: Router::new(),
-            config: Arc::new(config),
-            state: TypeMap::new(),
+            config,
+            state,
             plugins: Vec::new(),
         }
     }
@@ -262,10 +265,7 @@ where
 {
     /// Build a ready-to-serve router by attaching the finalized state.
     pub fn router(&self) -> Router<()> {
-        self.router
-            .clone()
-            .layer(axum::Extension(self.config_arc()))
-            .with_state(self.state.clone())
+        self.router.clone().with_state(self.state.clone())
     }
 
     /// Borrow the finalized app state.

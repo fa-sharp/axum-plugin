@@ -42,17 +42,14 @@ async fn main() -> anyhow::Result<()> {
     };
     let metrics_registry = Arc::new(Metrics::new());
 
-    // Create your plugins using AdHocPlugin. Can use a type alias for ease of use.
+    // Create your plugins using AdHocPlugin. Can use a type alias here for ease of use.
     type Plugin = AdHocPlugin<AppState, Config>;
-    let config_plugin = Plugin::named("Config")
-        .on_init(async |mut app| {
-            app.insert(app.config_arc())?;
-            Ok(app)
-        })
-        .on_setup(|app, router| {
-            tracing::info!(service = %app.config().service_name, "configuring routes");
-            Ok(router.route("/health", get(health)))
-        });
+
+    let health_plugin = Plugin::named("Health").on_setup(|app, router| {
+        tracing::info!(service = %app.config().service_name, "configuring routes");
+        Ok(router.route("/health", get(health)))
+    });
+
     let metrics_plugin = Plugin::named("Metrics")
         .on_init(async |mut app| {
             app.insert(metrics_registry)?;
@@ -79,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Register your plugins in the desired order, and initialize the app
     let app = App::with_config(config)
-        .register(config_plugin)
+        .register(health_plugin)
         .register(metrics_plugin)
         .init()
         .await?;
