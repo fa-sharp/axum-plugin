@@ -37,34 +37,36 @@ async fn metrics_handler(Extension(metrics): Extension<Arc<Metrics>>) -> &'stati
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = Arc::new(Config {
+    let config = Config {
         service_name: "api".to_owned(),
-    });
+    };
     let metrics_registry = Arc::new(Metrics::new());
 
-    // Create your plugins using AdHocPlugin
-    let config_plugin = AdHocPlugin::<AppState>::named("Config")
-        .on_init(async |mut state| {
-            state.insert(config);
-            Ok(state)
+    // Create your plugins using AdHocPlugin. Can use an alias for ease of use.
+    type Plugin = AdHocPlugin<AppState, Config>;
+    let config_plugin = Plugin::named("Config")
+        .on_init(async |mut app| {
+            app.insert(app.config_arc())?;
+            Ok(app)
         })
-        .on_setup(|router, state| {
-            tracing::info!(service = %state.config.service_name, "configuring routes");
-            Ok(router.route("/health", get(health)))
+        .on_setup(|app| {
+            tracing::info!(service = %app.config().service_name, "configuring routes");
+            Ok(app.into_router().route("/health", get(health)))
         });
-
-    let metrics_plugin = AdHocPlugin::<AppState>::named("Metrics")
-        .on_init(async |mut state| {
-            state.insert(metrics_registry);
-            Ok(state)
+    let metrics_plugin = Plugin::named("Metrics")
+        .on_init(async |mut app| {
+            app.insert(metrics_registry)?;
+            Ok(app)
         })
-        .on_setup(|router, state| {
-            Ok(router
+        .on_setup(|app| {
+            let metrics = Arc::clone(&app.state().metrics);
+            Ok(app
+                .into_router()
                 .route("/metrics", get(metrics_handler))
-                .layer(Extension(Arc::clone(&state.metrics))))
+                .layer(Extension(metrics)))
         })
-        .on_shutdown(|state| {
-            let metrics = Arc::clone(&state.metrics);
+        .on_shutdown(|app| {
+            let metrics = Arc::clone(&app.state().metrics);
             async move {
                 metrics.flush().await;
                 Ok(())
@@ -72,12 +74,12 @@ async fn main() -> anyhow::Result<()> {
         });
 
     // Register your plugins in the desired order, and initialize the app
-    let app = App::<AppState>::new()
+    let app = App::with_config(config)
         .register(config_plugin)
         .register(metrics_plugin)
         .init()
         .await?;
-    tracing::info!(service = %app.state().config.service_name, "starting server");
+    tracing::info!(service = %app.config().service_name, "starting server");
 
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -2,6 +2,7 @@
 name = "axum-plugin"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.94"
 
 [workspace]
 resolver = "2"
@@ -11,7 +12,9 @@ members = [".", "crates/*"]
 anyhow = "1.0"
 axum = "0.8"
 axum-plugin-macros = { path = "crates/macros" }
+figment = { version = "0.10", features = ["env", "toml"], optional = true }
 futures = "0.3"
+serde = { version = "1", optional = true }
 type-map = "0.5"
 
 [dev-dependencies]
@@ -21,3 +24,7 @@ tracing = "0.1.44"
 version = "1.52.3"
 default-features = false
 features = ["net", "rt", "rt-multi-thread", "signal"]
+
+[features]
+default = []
+figment = ["dep:figment", "dep:serde", "serde/derive"]

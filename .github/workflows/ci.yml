@@ -22,5 +22,14 @@ jobs:
       - name: cargo check
         run: cargo check --examples --locked
 
+      - name: cargo check all features
+        run: cargo check --all-features --examples --locked
+
       - name: cargo build
         run: cargo build --examples --locked
+
+      - name: cargo build all features
+        run: cargo build --all-features --examples --locked
+
+      - name: cargo test
+        run: cargo test --all-features --locked
