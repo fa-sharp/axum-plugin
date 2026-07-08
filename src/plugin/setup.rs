@@ -1,23 +1,16 @@
 use std::sync::Arc;
 
-use axum::Router;
-
 use crate::TypeMapState;
 
-/// Router setup context passed to [`AppPlugin::on_setup`].
+/// Router setup context passed to [`crate::plugin::AppPlugin::on_setup`].
 pub struct SetupApp<S = TypeMapState, C = ()> {
     config: Arc<C>,
-    router: Router<S>,
     state: S,
 }
 
 impl<S, C> SetupApp<S, C> {
-    pub(crate) fn new(config: Arc<C>, router: Router<S>, state: S) -> Self {
-        Self {
-            config,
-            router,
-            state,
-        }
+    pub(crate) fn new(config: Arc<C>, state: S) -> Self {
+        Self { config, state }
     }
 
     /// Borrow the finalized application config.
@@ -33,15 +26,5 @@ impl<S, C> SetupApp<S, C> {
     /// Borrow the finalized application state.
     pub fn state(&self) -> &S {
         &self.state
-    }
-
-    /// Borrow the router.
-    pub fn router(&self) -> &Router<S> {
-        &self.router
-    }
-
-    /// Consume the setup context and return its router.
-    pub fn into_router(self) -> Router<S> {
-        self.router
     }
 }

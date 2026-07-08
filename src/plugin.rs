@@ -33,15 +33,15 @@ where
     }
 
     /// Runs during startup before typed state exists.
-    /// Use this hook to insert or transform values in the shared [`TypeMap`].
+    /// Use this hook to insert or transform values in the shared [`crate::TypeMap`].
     fn on_init(&mut self, app: InitApp<C>) -> InitFuture<C> {
         async { Ok(app) }.boxed()
     }
 
     /// Runs after typed state has been created.
     /// Use this hook to add routes, services, middleware, or router state.
-    fn on_setup(&mut self, app: SetupApp<S, C>) -> Result<Router<S>> {
-        Ok(app.into_router())
+    fn on_setup(&mut self, app: SetupApp<S, C>, router: Router<S>) -> Result<Router<S>> {
+        Ok(router)
     }
 
     /// Return shutdown work for this plugin.

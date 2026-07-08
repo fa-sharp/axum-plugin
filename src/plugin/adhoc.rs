@@ -44,7 +44,7 @@ pub struct AdHocPlugin<S = TypeMapState, C = ()> {
 }
 
 type InitFn<C> = Box<dyn FnOnce(InitApp<C>) -> InitFuture<C> + Send>;
-type SetupFn<S, C> = Box<dyn FnOnce(SetupApp<S, C>) -> Result<Router<S>> + Send>;
+type SetupFn<S, C> = Box<dyn FnOnce(SetupApp<S, C>, Router<S>) -> Result<Router<S>> + Send>;
 type ShutdownFn<S, C> = Box<dyn FnOnce(ShutdownApp<S, C>) -> ShutdownFuture + Send>;
 
 impl<S, C> AdHocPlugin<S, C> {
@@ -69,7 +69,7 @@ impl<S, C> AdHocPlugin<S, C> {
     }
 
     /// Runs during startup before typed state exists.
-    /// Use this hook to insert or transform values in the shared [`TypeMap`].
+    /// Use this hook to insert or transform values in the shared [`crate::TypeMap`].
     pub fn on_init<F, T>(mut self, on_init: F) -> Self
     where
         F: FnOnce(InitApp<C>) -> T + Send + 'static,
@@ -83,7 +83,7 @@ impl<S, C> AdHocPlugin<S, C> {
     /// Use this hook to add routes, services, middleware, or router state.
     pub fn on_setup<F>(mut self, on_setup: F) -> Self
     where
-        F: FnOnce(SetupApp<S, C>) -> Result<Router<S>> + Send + 'static,
+        F: FnOnce(SetupApp<S, C>, Router<S>) -> Result<Router<S>> + Send + 'static,
     {
         self.on_setup = Some(Box::new(on_setup));
         self
@@ -121,10 +121,10 @@ where
         }
     }
 
-    fn on_setup(&mut self, app: SetupApp<S, C>) -> Result<Router<S>> {
+    fn on_setup(&mut self, app: SetupApp<S, C>, router: Router<S>) -> Result<Router<S>> {
         match self.on_setup.take() {
-            Some(setup_fn) => setup_fn(app),
-            None => Ok(app.into_router()),
+            Some(setup_fn) => setup_fn(app, router),
+            None => Ok(router),
         }
     }
 

@@ -4,7 +4,7 @@ use type_map::concurrent::TypeMap;
 
 use crate::Result;
 
-/// Initialization context passed to [`AppPlugin::on_init`].
+/// Initialization context passed to [`crate::plugin::AppPlugin::on_init`].
 pub struct InitApp<C = ()> {
     config: Arc<C>,
     state: TypeMap,

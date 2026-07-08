@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::TypeMapState;
 
-/// Shutdown context passed to [`AppPlugin::on_shutdown`].
+/// Shutdown context passed to [`crate::plugin::AppPlugin::on_shutdown`].
 pub struct ShutdownApp<S = TypeMapState, C = ()> {
     config: Arc<C>,
     state: S,

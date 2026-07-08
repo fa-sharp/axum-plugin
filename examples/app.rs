@@ -49,9 +49,9 @@ async fn main() -> anyhow::Result<()> {
             app.insert(app.config_arc())?;
             Ok(app)
         })
-        .on_setup(|app| {
+        .on_setup(|app, router| {
             tracing::info!(service = %app.config().service_name, "configuring routes");
-            Ok(app.into_router().route("/health", get(health)))
+            Ok(router.route("/health", get(health)))
         });
     let metrics_plugin = Plugin::named("Metrics")
         .on_init(async |mut app| {
@@ -59,10 +59,9 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(app)
         })
-        .on_setup(|app| {
+        .on_setup(|app, router| {
             let metrics = Arc::clone(&app.state().metrics);
-            let router = app
-                .into_router()
+            let router = router
                 .route("/metrics", get(metrics_handler))
                 .layer(Extension(metrics));
 

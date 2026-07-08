@@ -1,31 +1,4 @@
-//! A small plugin layer for [`axum`](https://docs.rs/axum/latest/axum/) applications.
-//!
-//! `axum-app-wrapper` lets plugins contribute startup state, router setup, and shutdown work
-//! around an `axum::Router`.
-//!
-//! Lifecycle:
-//!
-//! 1. Configuration is loaded.
-//! 2. [`AppPlugin::on_init`] runs in registration order and builds a [`TypeMap`].
-//! 3. The `TypeMap` is converted into the app state `S` with `TryFrom<TypeMap>`.
-//! 4. [`AppPlugin::on_setup`] runs in registration order and receives the router, state, and config.
-//! 5. [`InitializedApp::shutdown`] runs [`AppPlugin::on_shutdown`] consecutively in reverse
-//!    registration order.
-//!
-//! For one-off plugins, use [`AdHocPlugin`]. If the setup closure needs access to typed state,
-//! spell the state type at construction time so Rust can infer the closure parameters:
-//!
-//! ```ignore
-//! let plugin = AdHocPlugin::<AppState, AppConfig>::new()
-//!     .on_init(|mut app| async move {
-//!         app.insert(config);
-//!         Ok(app)
-//!     })
-//!     .on_setup(|app| {
-//!         let config = app.state().config.clone();
-//!         Ok(app.into_router().layer(axum::Extension(config)))
-//!     });
-//! ```
+#![doc = include_str!("../README.md")]
 
 extern crate self as axum_plugin;
 
@@ -228,11 +201,10 @@ where
         let mut router = self.base_router;
         for plugin in self.plugins.iter_mut() {
             router = plugin
-                .on_setup(SetupApp::new(
-                    Arc::clone(&self.config),
+                .on_setup(
+                    SetupApp::new(Arc::clone(&self.config), state.clone()),
                     router,
-                    state.clone(),
-                ))
+                )
                 .with_context(|| format!("Error in on_setup hook of plugin '{}'", plugin.name()))?;
         }
 
@@ -349,9 +321,9 @@ mod tests {
                 app.insert(init_value)?;
                 Ok(app)
             })
-            .on_setup(move |app| {
+            .on_setup(move |app, router| {
                 assert_eq!(app.state().value.as_str(), setup_value.as_str());
-                Ok(app.into_router())
+                Ok(router)
             });
         let app = App::<TestState>::new().register(plugin);
 
@@ -395,12 +367,12 @@ mod tests {
                     app.insert(Arc::clone(&app.config().label))?;
                     Ok(app)
                 })
-                .on_setup(move |app| {
+                .on_setup(move |app, router| {
                     setup_events
                         .lock()
                         .expect("events lock poisoned")
                         .push(format!("setup:{}", app.config().label));
-                    Ok(app.into_router())
+                    Ok(router)
                 })
                 .on_shutdown(move |app| {
                     let label = Arc::clone(&app.config().label);
