@@ -14,14 +14,19 @@ A convenient closure-based plugin for application setup.
 ```
 use axum_plugin::AdHocPlugin;
 
-// Use your app state and config types
-type AppState = String;
-type AppConfig = ();
+// Use your app config and state types
+struct AppConfig {
+    db_url: String,
+}
+struct AppState {
+    db: DbConnection,
+}
+struct DbConnection(String);
 
 let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
     .on_init(async |mut app| {
         // Initialize database
-        let db = "database";
+        let db = DbConnection(app.config().db_url.to_owned());
 
         // Add to state
         app.insert(db)?;

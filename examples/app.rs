@@ -56,17 +56,22 @@ async fn main() -> anyhow::Result<()> {
     let metrics_plugin = Plugin::named("Metrics")
         .on_init(async |mut app| {
             app.insert(metrics_registry)?;
+
             Ok(app)
         })
         .on_setup(|app| {
             let metrics = Arc::clone(&app.state().metrics);
-            Ok(app
+            let router = app
                 .into_router()
                 .route("/metrics", get(metrics_handler))
-                .layer(Extension(metrics)))
+                .layer(Extension(metrics));
+
+            Ok(router)
         })
         .on_shutdown(|app| {
             let metrics = Arc::clone(&app.state().metrics);
+
+            // Make sure to move all actual shutdown work into the async block
             async move {
                 metrics.flush().await;
                 Ok(())
