@@ -44,6 +44,7 @@ pub use figment;
 
 use crate::plugin::{InitApp, SetupApp, ShutdownApp};
 
+pub mod config;
 pub mod plugin;
 pub mod utils;
 
