@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     };
     let metrics_registry = Arc::new(Metrics::new());
 
-    // Create your plugins using AdHocPlugin. Can use an alias for ease of use.
+    // Create your plugins using AdHocPlugin. Can use a type alias for ease of use.
     type Plugin = AdHocPlugin<AppState, Config>;
     let config_plugin = Plugin::named("Config")
         .on_init(async |mut app| {

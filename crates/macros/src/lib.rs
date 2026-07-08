@@ -65,7 +65,7 @@ pub fn derive_app_state(input: TokenStream) -> TokenStream {
 
             fn try_from(mut map: ::axum_plugin::TypeMap) -> ::std::result::Result<Self, Self::Error> {
                 Ok(#name {
-                    #(#field_names: ::axum_plugin::extract_type_field(&mut map)?,)*
+                    #(#field_names: ::axum_plugin::utils::extract_type_field(&mut map)?,)*
                 })
             }
         }

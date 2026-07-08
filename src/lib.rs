@@ -29,28 +29,31 @@
 
 extern crate self as axum_plugin;
 
-use std::{borrow::Cow, fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use anyhow::Context;
 use axum::{Router, routing::MethodRouter};
-use futures::{FutureExt, future::BoxFuture};
+use futures::FutureExt;
 
 pub use axum_plugin_macros::AppState;
 pub use type_map::concurrent::TypeMap;
 
 pub use anyhow;
+#[cfg(feature = "figment")]
+pub use figment;
+
+use crate::plugin::{InitApp, SetupApp, ShutdownApp};
+
+pub mod plugin;
+pub mod utils;
+
+pub use plugin::{AdHocPlugin, AppPlugin};
 
 /// Error type used by this crate.
 pub type Error = anyhow::Error;
 
 /// Result type used by this crate.
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Startup initialization future returned by [`AppPlugin::on_init`].
-pub type InitFuture<C = ()> = BoxFuture<'static, Result<InitApp<C>>>;
-
-/// Shutdown future returned by [`AppPlugin::on_shutdown`].
-pub type ShutdownFuture = BoxFuture<'static, Result<()>>;
 
 /// Default app state that keeps the startup [`TypeMap`] available behind an [`Arc`].
 #[derive(Clone)]
@@ -66,144 +69,6 @@ impl TypeMapState {
 impl From<TypeMap> for TypeMapState {
     fn from(map: TypeMap) -> Self {
         Self(Arc::new(map))
-    }
-}
-
-/// Extracts a value of type `T` from a [`TypeMap`], returning an Anyhow error if the type is not present.
-///
-/// This is used internally by the [`AppState`] macro but is also available for manual
-/// [`TryFrom<TypeMap>`] implementations.
-pub fn extract_type_field<T: Send + Sync + 'static>(map: &mut TypeMap) -> Result<T> {
-    map.remove::<T>()
-        .ok_or_else(|| ::anyhow::anyhow!("Missing type in TypeMap: {}", std::any::type_name::<T>()))
-}
-
-// Plugin system
-
-/// Initialization context passed to [`AppPlugin::on_init`].
-pub struct InitApp<C = ()> {
-    config: Arc<C>,
-    state: TypeMap,
-}
-
-impl<C> InitApp<C> {
-    fn new(config: Arc<C>, state: TypeMap) -> Self {
-        Self { config, state }
-    }
-
-    /// Get a reference to the application config.
-    pub fn config(&self) -> &C {
-        &self.config
-    }
-
-    /// Clone the application config.
-    pub fn config_arc(&self) -> Arc<C> {
-        Arc::clone(&self.config)
-    }
-
-    /// Borrow the current state [`TypeMap`].
-    pub fn state(&self) -> &TypeMap {
-        &self.state
-    }
-
-    /// Mutably borrow the current state [`TypeMap`].
-    pub fn state_mut(&mut self) -> &mut TypeMap {
-        &mut self.state
-    }
-
-    /// Store a new value in state. This will fail if the type already exists in state.
-    pub fn insert<T: Send + Sync + 'static>(&mut self, value: T) -> Result<()> {
-        match self.state.contains::<T>() {
-            true => anyhow::bail!(
-                "Type already exists in state: '{}'",
-                std::any::type_name::<T>()
-            ),
-            false => self.state.insert(value),
-        };
-        Ok(())
-    }
-
-    /// Borrow a state value by type.
-    pub fn get<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        self.state.get::<T>()
-    }
-
-    /// Remove a state value by type.
-    pub fn remove<T: Send + Sync + 'static>(&mut self) -> Option<T> {
-        self.state.remove::<T>()
-    }
-
-    fn into_state(self) -> TypeMap {
-        self.state
-    }
-}
-
-/// Router setup context passed to [`AppPlugin::on_setup`].
-pub struct SetupApp<S = TypeMapState, C = ()> {
-    config: Arc<C>,
-    router: Router<S>,
-    state: S,
-}
-
-impl<S, C> SetupApp<S, C> {
-    fn new(config: Arc<C>, router: Router<S>, state: S) -> Self {
-        Self {
-            config,
-            router,
-            state,
-        }
-    }
-
-    /// Borrow the finalized application config.
-    pub fn config(&self) -> &C {
-        &self.config
-    }
-
-    /// Clone the shared application config.
-    pub fn config_arc(&self) -> Arc<C> {
-        Arc::clone(&self.config)
-    }
-
-    /// Borrow the finalized application state.
-    pub fn state(&self) -> &S {
-        &self.state
-    }
-
-    /// Borrow the router.
-    pub fn router(&self) -> &Router<S> {
-        &self.router
-    }
-
-    /// Consume the setup context and return its router.
-    pub fn into_router(self) -> Router<S> {
-        self.router
-    }
-}
-
-/// Shutdown context passed to [`AppPlugin::on_shutdown`].
-pub struct ShutdownApp<S = TypeMapState, C = ()> {
-    config: Arc<C>,
-    state: S,
-}
-
-impl<S, C> ShutdownApp<S, C> {
-    fn new(config: Arc<C>, state: S) -> Self {
-        Self { config, state }
-    }
-
-    /// Borrow the finalized application config.
-    pub fn config(&self) -> &C {
-        &self.config
-    }
-
-    /// Clone the shared application config.
-    pub fn config_arc(&self) -> Arc<C> {
-        Arc::clone(&self.config)
-    }
-
-    /// Borrow the finalized application state.
-    pub fn state(&self) -> &S {
-        &self.state
     }
 }
 
@@ -414,7 +279,7 @@ pub struct InitializedApp<S = TypeMapState, C = ()> {
     config: Arc<C>,
     router: Router<S>,
     state: S,
-    on_shutdown: ShutdownFuture,
+    on_shutdown: plugin::ShutdownFuture,
 }
 
 impl<S, C> InitializedApp<S, C>
@@ -424,7 +289,10 @@ where
 {
     /// Build a ready-to-serve router by attaching the finalized state.
     pub fn router(&self) -> Router<()> {
-        self.router.clone().with_state(self.state.clone())
+        self.router
+            .clone()
+            .layer(axum::Extension(self.config_arc()))
+            .with_state(self.state.clone())
     }
 
     /// Borrow the finalized app state.
@@ -443,148 +311,13 @@ where
     }
 
     /// Consume the initialized app and return its raw parts.
-    pub fn into_parts(self) -> (Router<S>, S, Arc<C>, ShutdownFuture) {
+    pub fn into_parts(self) -> (Router<S>, S, Arc<C>, plugin::ShutdownFuture) {
         (self.router, self.state, self.config, self.on_shutdown)
     }
 
     /// Return the future that runs shutdown for all plugins. Consumes the app.
-    pub fn shutdown(self) -> ShutdownFuture {
+    pub fn shutdown(self) -> plugin::ShutdownFuture {
         self.on_shutdown
-    }
-}
-
-/// A plugin that can participate in app initialization, router setup, and shutdown.
-#[allow(unused_variables, reason = "trait functions with default no-op")]
-pub trait AppPlugin<S = TypeMapState, C = ()>
-where
-    C: Send + Sync + 'static,
-{
-    /// Plugin name
-    fn name(&self) -> Cow<'static, str> {
-        Cow::Borrowed(std::any::type_name::<Self>())
-    }
-
-    /// Runs during startup before typed state exists.
-    /// Use this hook to insert or transform values in the shared [`TypeMap`].
-    fn on_init(&mut self, app: InitApp<C>) -> InitFuture<C> {
-        async { Ok(app) }.boxed()
-    }
-
-    /// Runs after typed state has been created.
-    /// Use this hook to add routes, services, middleware, or router state.
-    fn on_setup(&mut self, app: SetupApp<S, C>) -> Result<Router<S>> {
-        Ok(app.into_router())
-    }
-
-    /// Return shutdown work for this plugin.
-    ///
-    /// Shutdown hooks are awaited consecutively in reverse registration order.
-    fn on_shutdown(&mut self, app: ShutdownApp<S, C>) -> Option<ShutdownFuture> {
-        None
-    }
-}
-
-/// A closure-based plugin for application-local setup.
-///
-/// `on_init` and `on_setup` accept capturing closures. If hooks use typed state or config,
-/// prefer `AdHocPlugin::<State, Config>::new()` so the closure parameter type can be inferred.
-pub struct AdHocPlugin<S = TypeMapState, C = ()> {
-    name: Cow<'static, str>,
-    on_init: Option<InitFn<C>>,
-    on_setup: Option<SetupFn<S, C>>,
-    on_shutdown: Option<ShutdownFn<S, C>>,
-}
-
-type InitFn<C> = Box<dyn FnOnce(InitApp<C>) -> InitFuture<C> + Send>;
-type SetupFn<S, C> = Box<dyn FnOnce(SetupApp<S, C>) -> Result<Router<S>> + Send>;
-type ShutdownFn<S, C> = Box<dyn FnOnce(ShutdownApp<S, C>) -> ShutdownFuture + Send>;
-
-impl<S: 'static, C: 'static> AdHocPlugin<S, C> {
-    /// Create an ad-hoc plugin. Prefer `named()` to help with debugging.
-    pub fn new() -> Self {
-        Self {
-            name: Cow::Borrowed("adhoc"),
-            on_init: None,
-            on_setup: None,
-            on_shutdown: None,
-        }
-    }
-
-    /// Create a named ad-hoc plugin.
-    pub fn named(name: impl Into<Cow<'static, str>>) -> Self {
-        Self {
-            name: name.into(),
-            on_init: None,
-            on_setup: None,
-            on_shutdown: None,
-        }
-    }
-
-    /// Runs during startup before typed state exists.
-    /// Use this hook to insert or transform values in the shared [`TypeMap`].
-    pub fn on_init<F, T>(mut self, on_init: F) -> Self
-    where
-        F: FnOnce(InitApp<C>) -> T + Send + 'static,
-        T: Future<Output = Result<InitApp<C>>> + Send + 'static,
-    {
-        self.on_init = Some(Box::new(move |s| Box::pin(on_init(s))));
-        self
-    }
-
-    /// Runs after typed state has been created.
-    /// Use this hook to add routes, services, middleware, or router state.
-    pub fn on_setup<F>(mut self, on_setup: F) -> Self
-    where
-        F: FnOnce(SetupApp<S, C>) -> Result<Router<S>> + Send + 'static,
-    {
-        self.on_setup = Some(Box::new(on_setup));
-        self
-    }
-
-    /// Set shutdown work for this plugin.
-    pub fn on_shutdown<F, T>(mut self, on_shutdown: F) -> Self
-    where
-        F: FnOnce(ShutdownApp<S, C>) -> T + Send + 'static,
-        T: Future<Output = Result<()>> + Send + 'static,
-    {
-        self.on_shutdown = Some(Box::new(move |s| Box::pin(on_shutdown(s))));
-        self
-    }
-}
-
-impl<S: 'static, C: 'static> Default for AdHocPlugin<S, C> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<S, C> AppPlugin<S, C> for AdHocPlugin<S, C>
-where
-    C: Send + Sync + 'static,
-{
-    fn name(&self) -> Cow<'static, str> {
-        self.name.clone()
-    }
-
-    fn on_init(&mut self, app: InitApp<C>) -> InitFuture<C> {
-        match self.on_init.take() {
-            Some(init_fn) => async move { init_fn(app).await }.boxed(),
-            None => async { Ok(app) }.boxed(),
-        }
-    }
-
-    fn on_setup(&mut self, app: SetupApp<S, C>) -> Result<Router<S>> {
-        match self.on_setup.take() {
-            Some(setup_fn) => setup_fn(app),
-            None => Ok(app.into_router()),
-        }
-    }
-
-    fn on_shutdown(&mut self, app: ShutdownApp<S, C>) -> Option<ShutdownFuture> {
-        match self.on_shutdown.take() {
-            Some(shutdown_fn) => Some(shutdown_fn(app)),
-            None => None,
-        }
     }
 }
 
@@ -777,7 +510,7 @@ mod tests {
     }
 
     impl AppPlugin<TestState> for ShutdownOrderPlugin {
-        fn on_shutdown(&mut self, _app: ShutdownApp<TestState>) -> Option<ShutdownFuture> {
+        fn on_shutdown(&mut self, _app: ShutdownApp<TestState>) -> Option<plugin::ShutdownFuture> {
             let name = self.name;
             let events = Arc::clone(&self.events);
             let active_shutdowns = Arc::clone(&self.active_shutdowns);
