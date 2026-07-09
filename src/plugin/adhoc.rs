@@ -5,7 +5,7 @@ use futures::FutureExt;
 
 use crate::{
     Result, TypeMapState,
-    plugin::{AppPlugin, InitApp, InitFuture, SetupApp, ShutdownApp, ShutdownFuture},
+    plugin::{AppPlugin, InitApp, InitFuture, SetupApp, ShutdownApp, ShutdownFn},
 };
 
 /**
@@ -45,7 +45,6 @@ pub struct AdHocPlugin<S = TypeMapState, C = ()> {
 
 type InitFn<C> = Box<dyn FnOnce(InitApp<C>) -> InitFuture<C> + Send>;
 type SetupFn<S, C> = Box<dyn FnOnce(SetupApp<S, C>, Router<S>) -> Result<Router<S>> + Send>;
-type ShutdownFn<S, C> = Box<dyn FnOnce(ShutdownApp<S, C>) -> ShutdownFuture + Send>;
 
 impl<S, C> AdHocPlugin<S, C> {
     /// Create an ad-hoc plugin. Prefer `named()` to help with debugging.
@@ -128,9 +127,9 @@ where
         }
     }
 
-    fn on_shutdown(&mut self, app: ShutdownApp<S, C>) -> Option<ShutdownFuture> {
+    fn on_shutdown(&mut self) -> Option<ShutdownFn<S, C>> {
         match self.on_shutdown.take() {
-            Some(shutdown_fn) => Some(shutdown_fn(app)),
+            Some(shutdown_fn) => Some(shutdown_fn),
             None => None,
         }
     }

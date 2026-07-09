@@ -13,17 +13,17 @@ impl<S, C> ShutdownApp<S, C> {
         Self { config, state }
     }
 
-    /// Borrow the finalized application config.
+    /// Borrow the application config.
     pub fn config(&self) -> &C {
         &self.config
     }
 
-    /// Clone the shared application config.
+    /// Clone the application config.
     pub fn config_arc(&self) -> Arc<C> {
         Arc::clone(&self.config)
     }
 
-    /// Borrow the finalized application state.
+    /// Borrow the application state.
     pub fn state(&self) -> &S {
         &self.state
     }

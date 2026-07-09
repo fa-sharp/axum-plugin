@@ -217,16 +217,21 @@ where
             .rev()
             .filter_map(|mut p| {
                 let name = p.name();
-                let shutdown =
-                    p.on_shutdown(ShutdownApp::new(Arc::clone(&self.config), state.clone()))?;
-                Some((name, shutdown))
+                let shutdown_fn = p.on_shutdown()?;
+                Some((name, shutdown_fn))
             })
             .collect();
+        let shutdown_config = Arc::clone(&self.config);
+        let shutdown_state = state.clone();
+
         let on_shutdown = async move {
             for (plugin_name, shutdown_fn) in shutdown_fns {
-                shutdown_fn.await.with_context(|| {
-                    format!("Error in on_shutdown hook of plugin '{plugin_name}'")
-                })?;
+                shutdown_fn(ShutdownApp::new(
+                    Arc::clone(&shutdown_config),
+                    shutdown_state.clone(),
+                ))
+                .await
+                .with_context(|| format!("Error in on_shutdown hook of plugin '{plugin_name}'"))?;
             }
             Ok(())
         }
@@ -359,7 +364,7 @@ mod tests {
         })
         .register(
             AdHocPlugin::<TestState, TestConfig>::named("ConfigAware")
-                .on_init(move |mut app| async move {
+                .on_init(async move |mut app| {
                     init_events
                         .lock()
                         .expect("events lock poisoned")
@@ -374,15 +379,14 @@ mod tests {
                         .push(format!("setup:{}", app.config().label));
                     Ok(router)
                 })
-                .on_shutdown(move |app| {
+                .on_shutdown(async move |app| {
                     let label = Arc::clone(&app.config().label);
-                    async move {
-                        shutdown_events
-                            .lock()
-                            .expect("events lock poisoned")
-                            .push(format!("shutdown:{label}"));
-                        Ok(())
-                    }
+                    shutdown_events
+                        .lock()
+                        .expect("events lock poisoned")
+                        .push(format!("shutdown:{label}"));
+
+                    Ok(())
                 }),
         );
 
@@ -483,32 +487,34 @@ mod tests {
     }
 
     impl AppPlugin<TestState> for ShutdownOrderPlugin {
-        fn on_shutdown(&mut self, _app: ShutdownApp<TestState>) -> Option<plugin::ShutdownFuture> {
+        fn on_shutdown(&mut self) -> Option<plugin::ShutdownFn<TestState>> {
             let name = self.name;
             let events = Arc::clone(&self.events);
             let active_shutdowns = Arc::clone(&self.active_shutdowns);
             let mut yielded = false;
 
-            Some(Box::pin(futures::future::poll_fn(move |cx| {
-                if !yielded {
-                    yielded = true;
-                    let previously_active = active_shutdowns.fetch_add(1, Ordering::SeqCst);
-                    assert_eq!(previously_active, 0, "shutdown hooks ran concurrently");
+            Some(Box::new(move |_app| {
+                Box::pin(futures::future::poll_fn(move |cx| {
+                    if !yielded {
+                        yielded = true;
+                        let previously_active = active_shutdowns.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(previously_active, 0, "shutdown hooks ran concurrently");
+                        events
+                            .lock()
+                            .expect("events lock poisoned")
+                            .push(format!("{name}:start"));
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    }
+
                     events
                         .lock()
                         .expect("events lock poisoned")
-                        .push(format!("{name}:start"));
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-
-                events
-                    .lock()
-                    .expect("events lock poisoned")
-                    .push(format!("{name}:finish"));
-                active_shutdowns.fetch_sub(1, Ordering::SeqCst);
-                Poll::Ready(Ok(()))
-            })))
+                        .push(format!("{name}:finish"));
+                    active_shutdowns.fetch_sub(1, Ordering::SeqCst);
+                    Poll::Ready(Ok(()))
+                }))
+            }))
         }
     }
 

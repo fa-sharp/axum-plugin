@@ -34,7 +34,7 @@ struct AppConfig {
 async fn main() -> Result<()> {
     let my_plugin = AdHocPlugin::<AppState, AppConfig>::new()
         .on_init(async |mut app| {
-            app.insert(String::from("foo_state"));
+            app.insert(String::from("foo_state"))?;
             Ok(app)
         })
         .on_setup(|app, router| {

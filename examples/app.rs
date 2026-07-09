@@ -64,14 +64,9 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(router)
         })
-        .on_shutdown(|app| {
-            let metrics = Arc::clone(&app.state().metrics);
-
-            // Make sure to move all actual shutdown work into the async block
-            async move {
-                metrics.flush().await;
-                Ok(())
-            }
+        .on_shutdown(async move |app| {
+            app.state().metrics.flush().await;
+            Ok(())
         });
 
     // Register your plugins in the desired order, and initialize the app

@@ -18,7 +18,7 @@ impl<S, C> SetupApp<S, C> {
         &self.config
     }
 
-    /// Clone the shared application config.
+    /// Clone the finalized application config.
     pub fn config_arc(&self) -> Arc<C> {
         Arc::clone(&self.config)
     }

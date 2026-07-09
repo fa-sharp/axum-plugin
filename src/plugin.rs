@@ -18,7 +18,11 @@ pub use shutdown::ShutdownApp;
 /// Startup initialization future returned by [`AppPlugin::on_init`].
 pub type InitFuture<C = ()> = BoxFuture<'static, Result<InitApp<C>>>;
 
-/// Shutdown future returned by [`AppPlugin::on_shutdown`].
+/// Shutdown function returned by [`AppPlugin::on_shutdown`]
+pub type ShutdownFn<S = TypeMapState, C = ()> =
+    Box<dyn FnOnce(ShutdownApp<S, C>) -> ShutdownFuture + Send>;
+
+/// Future returned by the shutdown function
 pub type ShutdownFuture = BoxFuture<'static, Result<()>>;
 
 /// Trait for plugins that can participate in app initialization, router setup, and shutdown.
@@ -47,7 +51,7 @@ where
     /// Return shutdown work for this plugin.
     ///
     /// Shutdown hooks are awaited consecutively in reverse registration order.
-    fn on_shutdown(&mut self, app: ShutdownApp<S, C>) -> Option<ShutdownFuture> {
+    fn on_shutdown(&mut self) -> Option<ShutdownFn<S, C>> {
         None
     }
 }
