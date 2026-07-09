@@ -105,7 +105,7 @@ where
     /// 1. TOML file
     /// 2. Config struct defaults
     #[cfg(feature = "figment")]
-    pub fn from_file(path: &str) -> Result<Self>
+    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self>
     where
         C: serde::de::DeserializeOwned + serde::Serialize + Default,
     {
@@ -139,7 +139,7 @@ where
     /// 2. TOML file
     /// 3. Config struct defaults
     #[cfg(feature = "figment")]
-    pub fn from_env_and_file(path: impl AsRef<std::path::Path>, prefix: &str) -> Result<Self>
+    pub fn from_env_and_file(env_prefix: &str, path: impl AsRef<std::path::Path>) -> Result<Self>
     where
         C: serde::de::DeserializeOwned + serde::Serialize + Default,
     {
@@ -147,7 +147,7 @@ where
         Self::load_config_with(|| {
             figment::Figment::from(figment::providers::Serialized::defaults(C::default()))
                 .merge(figment::providers::Toml::file(path))
-                .merge(figment::providers::Env::prefixed(prefix))
+                .merge(figment::providers::Env::prefixed(env_prefix))
                 .extract::<C>()
                 .map_err(Into::into)
         })
