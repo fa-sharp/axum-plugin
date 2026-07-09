@@ -170,10 +170,17 @@ where
         self
     }
 
-    /// Store a value in state. ⚠️ Beware this will replace any value of the same type.
-    pub fn store<T: Send + Sync + 'static>(mut self, state: T) -> Self {
+    /// Store a value in state. This will return an error if a value of this type
+    /// already exists in state.
+    pub fn store<T: Send + Sync + 'static>(mut self, state: T) -> Result<Self> {
+        if self.state.contains::<T>() {
+            anyhow::bail!(
+                "Type already exists in state: '{}'",
+                std::any::type_name::<T>()
+            )
+        }
         self.state.insert(state);
-        self
+        Ok(self)
     }
 
     /// Register a plugin.
@@ -339,7 +346,9 @@ mod tests {
 
     #[test]
     fn store_and_router_handle_expose_initialized_state() {
-        let app = App::<TestState>::new().store(Arc::new(String::from("stored")));
+        let app = App::<TestState>::new()
+            .store(Arc::new(String::from("stored")))
+            .unwrap();
 
         let app = futures::executor::block_on(app.init()).expect("app should initialize");
         let _router = app.router();
@@ -426,7 +435,7 @@ mod tests {
 
     #[test]
     fn default_state_keeps_type_map_available() {
-        let app: App = App::new().store(Arc::new(String::from("typemap")));
+        let app: App = App::new().store(Arc::new(String::from("typemap"))).unwrap();
 
         let app = futures::executor::block_on(app.init()).expect("app should initialize");
 
@@ -445,7 +454,9 @@ mod tests {
 
     #[test]
     fn app_state_derive_supports_generics() {
-        let app = App::<GenericState<String>>::new().store(Arc::new(String::from("generic")));
+        let app = App::<GenericState<String>>::new()
+            .store(Arc::new(String::from("generic")))
+            .unwrap();
 
         let app = futures::executor::block_on(app.init()).expect("app should initialize");
 
@@ -459,6 +470,7 @@ mod tests {
 
         let app = App::<TestState>::new()
             .store(Arc::new(String::from("ready")))
+            .unwrap()
             .register(AdHocPlugin::<TestState>::new().on_shutdown(move |app| {
                 let events = Arc::clone(&shutdown_events);
                 let value = Arc::clone(&app.state().value);

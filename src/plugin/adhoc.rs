@@ -67,8 +67,28 @@ impl<S, C> AdHocPlugin<S, C> {
         }
     }
 
-    /// Runs during startup before typed state exists.
-    /// Use this hook to insert or transform values in the shared [`crate::TypeMap`].
+    /**
+    Hook that runs during startup before typed state exists.
+    The async closure takes a [`InitApp`] parameter and should return it as
+    a Result.
+
+    Use this hook to perform initialization work and build state, e.g.
+    setup database connections, etc.
+    ```
+    use axum_plugin::AdHocPlugin;
+
+    struct AppState;
+    struct Foo(&'static str);
+
+    let plugin = AdHocPlugin::<AppState>::named("myplugin")
+        .on_init(async |mut app| {
+            // Do some init work
+            let foo = Foo("some state");
+            app.insert(foo);
+            Ok(app)
+        });
+    ```
+    */
     pub fn on_init<F, T>(mut self, on_init: F) -> Self
     where
         F: FnOnce(InitApp<C>) -> T + Send + 'static,
@@ -78,8 +98,28 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
-    /// Runs after typed state has been created.
-    /// Use this hook to add routes, services, middleware, or router state.
+    /**
+    Hook that runs after typed state has been created. The closure takes
+    a [`SetupApp`] (with access to state and config) and [axum::Router]
+    as parameters, and should return a Result of a transformed router.
+
+    Use this hook to add routes, services, middleware, or router state.
+    ```
+    use axum::routing::get;
+    use axum_plugin::AdHocPlugin;
+
+    #[derive(Clone)]
+    struct AppState;
+
+    let plugin = AdHocPlugin::<AppState>::named("myplugin")
+        .on_setup(|app, router| {
+            let routes = axum::Router::new()
+                .route("/foo", get(async || "foo"));
+
+            Ok(router.nest("/api", routes))
+        });
+    ```
+    */
     pub fn on_setup<F>(mut self, on_setup: F) -> Self
     where
         F: FnOnce(SetupApp<S, C>, Router<S>) -> Result<Router<S>> + Send + 'static,
@@ -88,7 +128,11 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
-    /// Set shutdown work for this plugin.
+    /// Hook to set shutdown work for this plugin. The async closure takes a
+    /// [`ShutdownApp`] parameter with access to state and config, and should return
+    /// a `Result<()>`.
+    ///
+    /// Shutdown hooks are awaited consecutively in reverse plugin registration order.
     pub fn on_shutdown<F, T>(mut self, on_shutdown: F) -> Self
     where
         F: FnOnce(ShutdownApp<S, C>) -> T + Send + 'static,
