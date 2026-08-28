@@ -6,32 +6,30 @@ use futures::{FutureExt, future::BoxFuture};
 use crate::{Result, TypeMapState};
 
 mod adhoc;
+mod context;
 mod init;
-mod setup;
-mod shutdown;
 
-pub use adhoc::{AdHocPlugin, IntoRequestHookResult, IntoResponseHookResult};
-pub use init::InitApp;
-pub use setup::SetupApp;
-pub use shutdown::ShutdownApp;
+pub use adhoc::{AdHocPlugin, IntoRequestHookResult, IntoResponseHookResult, PluginMiddleware};
+pub use context::AppContext;
+pub use init::AppInitContext;
 
 /// Startup initialization future returned by [`AppPlugin::on_init`].
-pub type InitFuture<C = ()> = BoxFuture<'static, Result<InitApp<C>>>;
+pub type InitFuture<C = ()> = BoxFuture<'static, Result<AppInitContext<C>>>;
 
 /// Asynchronous hook that will run on each request, returned by [`AppPlugin::on_request`].
 pub type OnRequestFn<S = TypeMapState, C = ()> = Arc<
-    dyn Fn(SetupApp<S, C>, Request) -> BoxFuture<'static, std::result::Result<Request, Response>>
+    dyn Fn(AppContext<S, C>, Request) -> BoxFuture<'static, std::result::Result<Request, Response>>
         + Send
         + Sync,
 >;
 
 /// Asynchronous hook that will run on each response, returned by [`AppPlugin::on_response`].
 pub type OnResponseFn<S = TypeMapState, C = ()> =
-    Arc<dyn Fn(SetupApp<S, C>, Response) -> BoxFuture<'static, Response> + Send + Sync>;
+    Arc<dyn Fn(AppContext<S, C>, Response) -> BoxFuture<'static, Response> + Send + Sync>;
 
 /// Shutdown function returned by [`AppPlugin::on_shutdown`]
 pub type ShutdownFn<S = TypeMapState, C = ()> =
-    Box<dyn FnOnce(ShutdownApp<S, C>) -> ShutdownFuture + Send>;
+    Box<dyn FnOnce(AppContext<S, C>) -> ShutdownFuture + Send>;
 
 /// Future returned by the shutdown function
 pub type ShutdownFuture = BoxFuture<'static, Result<()>>;
@@ -50,7 +48,7 @@ where
     /// Runs during startup before typed state exists.
     ///
     /// Use this hook to insert or transform values in state.
-    fn on_init(&mut self, app: InitApp<C>) -> InitFuture<C> {
+    fn on_init(&mut self, app: AppInitContext<C>) -> InitFuture<C> {
         async { Ok(app) }.boxed()
     }
 
@@ -67,7 +65,7 @@ where
     /// Runs after typed state has been created.
     ///
     /// Use this hook to add routes, services, middleware, or router state.
-    fn on_setup(&mut self, app: SetupApp<S, C>, router: Router<S>) -> Result<Router<S>> {
+    fn on_setup(&mut self, app: AppContext<S, C>, router: Router<S>) -> Result<Router<S>> {
         Ok(router)
     }
 

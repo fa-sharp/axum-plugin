@@ -5,12 +5,12 @@ use type_map::concurrent::TypeMap;
 use crate::Result;
 
 /// Initialization context passed to [`crate::plugin::AppPlugin::on_init`].
-pub struct InitApp<C = ()> {
+pub struct AppInitContext<C = ()> {
     config: Arc<C>,
     state: TypeMap,
 }
 
-impl<C> InitApp<C> {
+impl<C> AppInitContext<C> {
     pub(crate) fn new(config: Arc<C>, state: TypeMap) -> Self {
         Self { config, state }
     }

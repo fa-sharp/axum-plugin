@@ -6,7 +6,7 @@ A small plugin layer for `axum` applications, inspired by plugin-based framework
 
 See the `examples` folder for full examples.
 
-```rust
+```rust,no_run
 use std::sync::Arc;
 
 use axum_plugin::{AdHocPlugin, App, AppState, Result};
@@ -44,7 +44,8 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(async move {
             tokio::signal::ctrl_c().await.expect("failed to listen for ctrl-c");
             app.shutdown().await.expect("failed to shut down");
-        }); // .await.unwrap();
+        })
+        .await?;
 
     Ok(())
 }
@@ -89,15 +90,54 @@ pub async fn main() -> Result<()> {
 - `on_shutdown`: runs during graceful shutdown, in reverse plugin registration order
 - `on_request`: runs before every request for all previously registered routes
 - `on_response`: runs after the router is invoked for all previously registered routes
+- `middleware`: adds extractor-aware axum middleware for all previously registered routes
+
+## Middleware Extractors
+
+Use `AdHocPlugin::middleware` when request handling needs normal axum extractors or `Next`.
+Add `AppContext<S, C>` as an extractor to access finalized state and config.
+
+```rust
+use axum::{
+    extract::Request,
+    http::HeaderMap,
+    middleware::Next,
+    response::Response,
+};
+use axum_plugin::{AdHocPlugin, AppContext};
+
+#[derive(Clone)]
+struct AppState;
+
+#[derive(Clone)]
+struct AppConfig {
+    api_key: String,
+}
+
+async fn auth(
+    app: AppContext<AppState, AppConfig>,
+    headers: HeaderMap,
+    req: Request,
+    next: Next,
+) -> Response {
+    let _expected_key = &app.config().api_key;
+    let _headers = headers;
+
+    next.run(req).await
+}
+
+let plugin = AdHocPlugin::<AppState, AppConfig>::named("auth")
+    .middleware(auth);
+```
 
 ## Plugin Lifecycle
 
 ### Setup
 
 1. Application config is loaded.
-2. Plugins' `on_init` hooks run in registration order, passing `InitApp<C>` with a `TypeMap` to build state.
+2. Plugins' `on_init` hooks run in registration order, passing `AppInitContext<C>` with a `TypeMap` to build state.
 3. The final app state is built using `S::try_from(TypeMap)`.
-4. `on_setup` runs in plugin registration order, passing `SetupApp<S, C>` with access to state and config, along with the axum router.
+4. `on_setup` runs in plugin registration order, passing `AppContext<S, C>` with access to state and config, along with the axum router.
 
 ### Request
 
@@ -108,4 +148,4 @@ pub async fn main() -> Result<()> {
 
 ### Shutdown
 
-1. `InitializedApp::shutdown()` runs `on_shutdown` consecutively in reverse plugin registration order, passing a `ShutdownApp<S, C>` with access to state and config.
+1. `InitializedApp::shutdown()` runs `on_shutdown` consecutively in reverse plugin registration order, passing a `AppContext<S, C>` with access to state and config.
