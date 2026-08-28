@@ -5,10 +5,10 @@ use axum::{
     extract::Request,
     response::{IntoResponse, Response},
 };
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 
 use crate::{
-    Result,
+    Result, TypeMapState,
     plugin::{
         AppPlugin, InitApp, InitFuture, OnRequestFn, OnResponseFn, SetupApp, ShutdownApp,
         ShutdownFn,
@@ -43,7 +43,7 @@ let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
     });
 ```
 */
-pub struct AdHocPlugin<S, C = ()> {
+pub struct AdHocPlugin<S = TypeMapState, C = ()> {
     name: Cow<'static, str>,
     on_init: Option<InitFn<C>>,
     on_request: Option<OnRequestFn<S, C>>,
@@ -54,6 +54,12 @@ pub struct AdHocPlugin<S, C = ()> {
 
 type InitFn<C> = Box<dyn FnOnce(InitApp<C>) -> InitFuture<C> + Send>;
 type SetupFn<S, C> = Box<dyn FnOnce(SetupApp<S, C>, Router<S>) -> Result<Router<S>> + Send>;
+
+impl<S: 'static, C: 'static> Default for AdHocPlugin<S, C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<S, C> AdHocPlugin<S, C> {
     /// Create an ad-hoc plugin. Prefer `named()` to help with debugging.
@@ -115,18 +121,18 @@ impl<S, C> AdHocPlugin<S, C> {
     }
 
     /// Asynchronous hook that will run on each request. The closure takes a [`SetupApp`] (with
-    /// access to state and config) and [`Request`] as parameters, and should return a Result of a
-    /// transformed request. The error type `E` must implement [`IntoResponse`].
+    /// access to state and config) and [`Request`] as parameters, and should return the
+    /// transformed request. If returning a result, the error type `E` must implement [`IntoResponse`].
     ///
     /// This hook runs **before** any middleware defined in this plugin's `on_setup` hook.
-    pub fn on_request<F, T, E>(mut self, on_request: F) -> Self
+    pub fn on_request<F, T, R>(mut self, on_request: F) -> Self
     where
         F: Fn(SetupApp<S, C>, Request) -> T + Send + Sync + 'static,
-        T: Future<Output = std::result::Result<Request, E>> + Send + 'static,
-        E: IntoResponse,
+        T: Future<Output = R> + Send + 'static,
+        R: IntoRequestHookResult,
     {
         self.on_request = Some(Arc::new(move |s, r| {
-            Box::pin(on_request(s, r).map_err(|err| err.into_response()))
+            Box::pin(on_request(s, r).map(|req| req.into_request_result()))
         }));
         self
     }
@@ -162,16 +168,17 @@ impl<S, C> AdHocPlugin<S, C> {
     }
 
     /// Asynchronous hook that will run on each response. The closure takes a [`SetupApp`] (with
-    /// access to state and config) and [`Response`] as parameters, and should return a Result of a
-    /// transformed response.
-    pub fn on_response<F, T, E>(mut self, on_response: F) -> Self
+    /// access to state and config) and [`Response`] as parameters, and should return the
+    /// transformed response. Can also return a `Result<Response, E>` where E implements
+    /// [`IntoResponse`].
+    pub fn on_response<F, T, R>(mut self, on_response: F) -> Self
     where
         F: Fn(SetupApp<S, C>, Response) -> T + Send + Sync + 'static,
-        T: Future<Output = std::result::Result<Response, E>> + Send + 'static,
-        E: IntoResponse,
+        T: Future<Output = R> + Send + 'static,
+        R: IntoResponseHookResult,
     {
         self.on_response = Some(Arc::new(move |s, r| {
-            Box::pin(on_response(s, r).map_err(|err| err.into_response()))
+            Box::pin(on_response(s, r).map(|res| res.into_response_result()))
         }));
         self
     }
@@ -191,9 +198,45 @@ impl<S, C> AdHocPlugin<S, C> {
     }
 }
 
-impl<S: 'static, C: 'static> Default for AdHocPlugin<S, C> {
-    fn default() -> Self {
-        Self::new()
+/// Trait for converting the result of a request hook into a [`Result<Request, Response>`].
+pub trait IntoRequestHookResult {
+    fn into_request_result(self) -> std::result::Result<Request, Response>;
+}
+impl IntoRequestHookResult for Request {
+    fn into_request_result(self) -> std::result::Result<Request, Response> {
+        Ok(self)
+    }
+}
+impl<E> IntoRequestHookResult for std::result::Result<Request, E>
+where
+    E: IntoResponse,
+{
+    fn into_request_result(self) -> std::result::Result<Request, Response> {
+        match self {
+            Ok(req) => Ok(req),
+            Err(e) => Err(e.into_response()),
+        }
+    }
+}
+
+/// Trait for converting the result of a response hook into a [`Result<Response, Response>`].
+pub trait IntoResponseHookResult {
+    fn into_response_result(self) -> std::result::Result<Response, Response>;
+}
+impl IntoResponseHookResult for Response {
+    fn into_response_result(self) -> std::result::Result<Response, Response> {
+        Ok(self)
+    }
+}
+impl<E> IntoResponseHookResult for std::result::Result<Response, E>
+where
+    E: IntoResponse,
+{
+    fn into_response_result(self) -> std::result::Result<Response, Response> {
+        match self {
+            Ok(resp) => Ok(resp),
+            Err(e) => Err(e.into_response()),
+        }
     }
 }
 

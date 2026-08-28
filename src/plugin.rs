@@ -10,7 +10,7 @@ mod init;
 mod setup;
 mod shutdown;
 
-pub use adhoc::AdHocPlugin;
+pub use adhoc::{AdHocPlugin, IntoRequestHookResult, IntoResponseHookResult};
 pub use init::InitApp;
 pub use setup::SetupApp;
 pub use shutdown::ShutdownApp;

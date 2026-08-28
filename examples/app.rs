@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
             res.headers_mut()
                 .insert("X-Foo", HeaderValue::from_static("bar"));
 
-            Ok::<_, ()>(res)
+            res
         })
         .on_shutdown(async move |app| {
             app.state().metrics.flush().await;
