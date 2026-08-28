@@ -1,6 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
-use axum::Router;
+use axum::{Router, extract::Request, response::Response};
 use futures::{FutureExt, future::BoxFuture};
 
 use crate::{Result, TypeMapState};
@@ -17,6 +17,20 @@ pub use shutdown::ShutdownApp;
 
 /// Startup initialization future returned by [`AppPlugin::on_init`].
 pub type InitFuture<C = ()> = BoxFuture<'static, Result<InitApp<C>>>;
+
+/// Asynchronous hook that will run on each request, returned by [`AppPlugin::on_request`].
+pub type OnRequestFn<S = TypeMapState, C = ()> = Arc<
+    dyn Fn(SetupApp<S, C>, Request) -> BoxFuture<'static, std::result::Result<Request, Response>>
+        + Send
+        + Sync,
+>;
+
+/// Asynchronous hook that will run on each response, returned by [`AppPlugin::on_response`].
+pub type OnResponseFn<S = TypeMapState, C = ()> = Arc<
+    dyn Fn(SetupApp<S, C>, Response) -> BoxFuture<'static, std::result::Result<Response, Response>>
+        + Send
+        + Sync,
+>;
 
 /// Shutdown function returned by [`AppPlugin::on_shutdown`]
 pub type ShutdownFn<S = TypeMapState, C = ()> =
@@ -41,6 +55,16 @@ where
     /// Use this hook to insert or transform values in state.
     fn on_init(&mut self, app: InitApp<C>) -> InitFuture<C> {
         async { Ok(app) }.boxed()
+    }
+
+    /// Runs before each request asynchronously, before any middleware defined in `on_setup`.
+    fn on_request(&mut self) -> Option<OnRequestFn<S, C>> {
+        None
+    }
+
+    /// Runs after each response asynchronously, after any middleware defined in `on_setup`.
+    fn on_response(&mut self) -> Option<OnResponseFn<S, C>> {
+        None
     }
 
     /// Runs after typed state has been created.

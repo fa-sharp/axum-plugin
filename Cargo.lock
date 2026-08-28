@@ -86,6 +86,7 @@ dependencies = [
  "futures",
  "serde",
  "tokio",
+ "tower",
  "tracing",
  "type-map",
 ]

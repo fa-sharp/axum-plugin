@@ -1,11 +1,18 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
-use axum::Router;
-use futures::FutureExt;
+use axum::{
+    Router,
+    extract::Request,
+    response::{IntoResponse, Response},
+};
+use futures::{FutureExt, TryFutureExt};
 
 use crate::{
-    Result, TypeMapState,
-    plugin::{AppPlugin, InitApp, InitFuture, SetupApp, ShutdownApp, ShutdownFn},
+    Result,
+    plugin::{
+        AppPlugin, InitApp, InitFuture, OnRequestFn, OnResponseFn, SetupApp, ShutdownApp,
+        ShutdownFn,
+    },
 };
 
 /**
@@ -36,9 +43,11 @@ let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
     });
 ```
 */
-pub struct AdHocPlugin<S = TypeMapState, C = ()> {
+pub struct AdHocPlugin<S, C = ()> {
     name: Cow<'static, str>,
     on_init: Option<InitFn<C>>,
+    on_request: Option<OnRequestFn<S, C>>,
+    on_response: Option<OnResponseFn<S, C>>,
     on_setup: Option<SetupFn<S, C>>,
     on_shutdown: Option<ShutdownFn<S, C>>,
 }
@@ -52,6 +61,8 @@ impl<S, C> AdHocPlugin<S, C> {
         Self {
             name: Cow::Borrowed("adhoc"),
             on_init: None,
+            on_request: None,
+            on_response: None,
             on_setup: None,
             on_shutdown: None,
         }
@@ -62,13 +73,15 @@ impl<S, C> AdHocPlugin<S, C> {
         Self {
             name: name.into(),
             on_init: None,
+            on_request: None,
+            on_response: None,
             on_setup: None,
             on_shutdown: None,
         }
     }
 
     /**
-    Hook that runs during startup before typed state exists.
+    Hook that runs during startup, with mutable access to the state TypeMap.
     The async closure takes a [`InitApp`] parameter and should return it as
     a Result.
 
@@ -84,7 +97,10 @@ impl<S, C> AdHocPlugin<S, C> {
         .on_init(async |mut app| {
             // Do some init work
             let foo = Foo("some state");
-            app.insert(foo);
+
+            // Insert into the state TypeMap
+            app.insert(foo)?;
+
             Ok(app)
         });
     ```
@@ -95,6 +111,23 @@ impl<S, C> AdHocPlugin<S, C> {
         T: Future<Output = Result<InitApp<C>>> + Send + 'static,
     {
         self.on_init = Some(Box::new(move |s| Box::pin(on_init(s))));
+        self
+    }
+
+    /// Asynchronous hook that will run on each request. The closure takes a [`SetupApp`] (with
+    /// access to state and config) and [`Request`] as parameters, and should return a Result of a
+    /// transformed request. The error type `E` must implement [`IntoResponse`].
+    ///
+    /// This hook runs **before** any middleware defined in this plugin's `on_setup` hook.
+    pub fn on_request<F, T, E>(mut self, on_request: F) -> Self
+    where
+        F: Fn(SetupApp<S, C>, Request) -> T + Send + Sync + 'static,
+        T: Future<Output = std::result::Result<Request, E>> + Send + 'static,
+        E: IntoResponse,
+    {
+        self.on_request = Some(Arc::new(move |s, r| {
+            Box::pin(on_request(s, r).map_err(|err| err.into_response()))
+        }));
         self
     }
 
@@ -125,6 +158,21 @@ impl<S, C> AdHocPlugin<S, C> {
         F: FnOnce(SetupApp<S, C>, Router<S>) -> Result<Router<S>> + Send + 'static,
     {
         self.on_setup = Some(Box::new(on_setup));
+        self
+    }
+
+    /// Asynchronous hook that will run on each response. The closure takes a [`SetupApp`] (with
+    /// access to state and config) and [`Response`] as parameters, and should return a Result of a
+    /// transformed response.
+    pub fn on_response<F, T, E>(mut self, on_response: F) -> Self
+    where
+        F: Fn(SetupApp<S, C>, Response) -> T + Send + Sync + 'static,
+        T: Future<Output = std::result::Result<Response, E>> + Send + 'static,
+        E: IntoResponse,
+    {
+        self.on_response = Some(Arc::new(move |s, r| {
+            Box::pin(on_response(s, r).map_err(|err| err.into_response()))
+        }));
         self
     }
 
@@ -164,10 +212,24 @@ where
         }
     }
 
+    fn on_request(&mut self) -> Option<OnRequestFn<S, C>> {
+        match self.on_request.take() {
+            Some(on_request) => Some(on_request),
+            None => None,
+        }
+    }
+
     fn on_setup(&mut self, app: SetupApp<S, C>, router: Router<S>) -> Result<Router<S>> {
         match self.on_setup.take() {
             Some(setup_fn) => setup_fn(app, router),
             None => Ok(router),
+        }
+    }
+
+    fn on_response(&mut self) -> Option<OnResponseFn<S, C>> {
+        match self.on_response.take() {
+            Some(on_response) => Some(on_response),
+            None => None,
         }
     }
 

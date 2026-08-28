@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum::{Extension, extract::State, routing::get};
+use axum::{Extension, extract::State, http::HeaderValue, routing::get};
 use axum_plugin::{AdHocPlugin, App, AppState};
 
 #[derive(Clone, AppState)]
@@ -63,6 +63,12 @@ async fn main() -> anyhow::Result<()> {
                 .layer(Extension(metrics));
 
             Ok(router)
+        })
+        .on_response(async |_app, mut res| {
+            res.headers_mut()
+                .insert("X-Foo", HeaderValue::from_static("bar"));
+
+            Ok::<_, ()>(res)
         })
         .on_shutdown(async move |app| {
             app.state().metrics.flush().await;

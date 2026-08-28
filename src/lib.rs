@@ -5,7 +5,7 @@ extern crate self as axum_plugin;
 use std::{fmt::Display, sync::Arc};
 
 use anyhow::Context;
-use axum::{Router, routing::MethodRouter};
+use axum::{Router, extract::Request, response::Response, routing::MethodRouter};
 use futures::FutureExt;
 
 pub use axum_plugin_macros::AppState;
@@ -216,6 +216,30 @@ where
                     router,
                 )
                 .with_context(|| format!("Error in on_setup hook of plugin '{}'", plugin.name()))?;
+
+            if let Some(on_request) = plugin.on_request() {
+                let config = Arc::clone(&self.config);
+                let state = state.clone();
+                let layer = axum::middleware::map_request(move |req: Request| {
+                    let config = Arc::clone(&config);
+                    let state = state.clone();
+
+                    on_request(SetupApp::new(config, state.clone()), req)
+                });
+                router = router.layer(layer);
+            }
+
+            if let Some(on_response) = plugin.on_response() {
+                let config = Arc::clone(&self.config);
+                let state = state.clone();
+                let layer = axum::middleware::map_response(move |res: Response| {
+                    let config = Arc::clone(&config);
+                    let state = state.clone();
+
+                    on_response(SetupApp::new(config, state.clone()), res)
+                });
+                router = router.layer(layer);
+            }
         }
 
         let shutdown_fns: Vec<_> = self
@@ -328,7 +352,7 @@ mod tests {
         let init_value = Arc::new(String::from("ready"));
         let setup_value = Arc::clone(&init_value);
 
-        let plugin = AdHocPlugin::<TestState>::new()
+        let plugin = AdHocPlugin::<TestState, ()>::new()
             .on_init(async |mut app| {
                 app.insert(init_value)?;
                 Ok(app)
