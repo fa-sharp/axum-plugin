@@ -26,11 +26,8 @@ pub type OnRequestFn<S = TypeMapState, C = ()> = Arc<
 >;
 
 /// Asynchronous hook that will run on each response, returned by [`AppPlugin::on_response`].
-pub type OnResponseFn<S = TypeMapState, C = ()> = Arc<
-    dyn Fn(SetupApp<S, C>, Response) -> BoxFuture<'static, std::result::Result<Response, Response>>
-        + Send
-        + Sync,
->;
+pub type OnResponseFn<S = TypeMapState, C = ()> =
+    Arc<dyn Fn(SetupApp<S, C>, Response) -> BoxFuture<'static, Response> + Send + Sync>;
 
 /// Shutdown function returned by [`AppPlugin::on_shutdown`]
 pub type ShutdownFn<S = TypeMapState, C = ()> =

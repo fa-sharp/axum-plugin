@@ -132,6 +132,7 @@ impl<S, C> AdHocPlugin<S, C> {
         R: IntoRequestHookResult,
     {
         self.on_request = Some(Arc::new(move |s, r| {
+            #[allow(clippy::result_large_err)]
             Box::pin(on_request(s, r).map(|req| req.into_request_result()))
         }));
         self
@@ -178,7 +179,7 @@ impl<S, C> AdHocPlugin<S, C> {
         R: IntoResponseHookResult,
     {
         self.on_response = Some(Arc::new(move |s, r| {
-            Box::pin(on_response(s, r).map(|res| res.into_response_result()))
+            Box::pin(on_response(s, r).map(|res| res.into_response()))
         }));
         self
     }
@@ -200,6 +201,7 @@ impl<S, C> AdHocPlugin<S, C> {
 
 /// Trait for converting the result of a request hook into a [`Result<Request, Response>`].
 pub trait IntoRequestHookResult {
+    #[allow(clippy::result_large_err)]
     fn into_request_result(self) -> std::result::Result<Request, Response>;
 }
 impl IntoRequestHookResult for Request {
@@ -219,23 +221,23 @@ where
     }
 }
 
-/// Trait for converting the result of a response hook into a [`Result<Response, Response>`].
+/// Trait for converting the result of a response hook into a [`Response`].
 pub trait IntoResponseHookResult {
-    fn into_response_result(self) -> std::result::Result<Response, Response>;
+    fn into_response(self) -> Response;
 }
 impl IntoResponseHookResult for Response {
-    fn into_response_result(self) -> std::result::Result<Response, Response> {
-        Ok(self)
+    fn into_response(self) -> Response {
+        self
     }
 }
 impl<E> IntoResponseHookResult for std::result::Result<Response, E>
 where
     E: IntoResponse,
 {
-    fn into_response_result(self) -> std::result::Result<Response, Response> {
+    fn into_response(self) -> Response {
         match self {
-            Ok(resp) => Ok(resp),
-            Err(e) => Err(e.into_response()),
+            Ok(resp) => resp,
+            Err(e) => e.into_response(),
         }
     }
 }
