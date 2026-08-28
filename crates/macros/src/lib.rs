@@ -7,20 +7,23 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 /// Apply this to your state struct and each named field will be extracted from the
 /// [`TypeMap`] by type automatically. Keep in mind each field must be of a
 /// different type — if you need to store multiple values of the same type, use
-/// a wrapper like `struct Foo(type)` or `enum Foo { A(type), B(type) }`.
+/// a newtype wrapper like `struct Foo(type)`.
 ///
-/// How the state is stored and cloned is up to you —
-/// if you want cheap clones, wrap your fields in `Arc` individually or use
-/// `Arc<AppState>` as your axum state type.
+/// To access your config, add a field with type `Arc<AppConfig>`.
 ///
 /// ```ignore
 /// #[derive(AppState)]
 /// struct AppState {
-///     config: Config,
+///     config: Arc<AppConfig>,
 ///     pool: Pool,
 ///     db: Db,
 /// }
-/// // To wrap the whole state in `Arc`, implement `TryFrom<TypeMap>` for `Arc<AppState>`:
+/// ```
+///
+/// Axum state must be Clone: you can wrap non-cloneable fields in `Arc` individually, or you
+/// can use `Arc<AppState>` as your axum state type by implementing `TryFrom<TypeMap>` for `Arc<AppState>`:
+///
+/// ```ignore
 /// impl TryFrom<TypeMap> for Arc<AppState> {
 ///     type Error = axum_plugin::Error;
 ///
