@@ -1,7 +1,7 @@
-use std::{fmt::Display, sync::Arc};
+use std::{borrow::Cow, fmt::Display, sync::Arc};
 
 use anyhow::Context;
-use axum::{Router, routing::MethodRouter};
+use axum::Router;
 use futures::FutureExt;
 use type_map::concurrent::TypeMap;
 
@@ -13,7 +13,8 @@ use crate::{
 /// An axum app builder with plugin-managed config, state, router setup, and shutdown hooks.
 pub struct App<S = TypeMapState, C = ()> {
     base_router: Router<S>,
-    plugins: Vec<Box<dyn AppPlugin<S, C>>>,
+    #[allow(clippy::type_complexity)]
+    plugins: Vec<(Box<dyn AppPlugin<S, C>>, Option<Cow<'static, str>>)>,
     config: Arc<C>,
     state: TypeMap,
 }
@@ -118,23 +119,6 @@ where
         })
     }
 
-    /// Add a route to the base router before any setup hooks run. Prefer mounting most
-    /// routes within plugins.
-    pub fn route(mut self, path: &str, method_router: MethodRouter<S>) -> Self {
-        self.base_router = self.base_router.route(path, method_router);
-        self
-    }
-
-    /// Mount routes at the given path before any setup hooks run. Prefer mounting most
-    /// routes within plugins.
-    pub fn mount(mut self, path: &str, router: Router<S>) -> Self {
-        self.base_router = match path {
-            "" | "/" => self.base_router.merge(router),
-            _ => self.base_router.nest(path, router),
-        };
-        self
-    }
-
     /// Store a value in state. This will return an error if a value of this type
     /// already exists in state.
     pub fn store<T: Send + Sync + 'static>(mut self, state: T) -> Result<Self> {
@@ -149,11 +133,18 @@ where
     }
 
     /// Register a plugin.
-    ///
-    /// `on_init` and `on_setup` run in registration order. Shutdown runs in reverse registration
-    /// order, awaiting each hook before starting the next.
     pub fn register(mut self, plugin: impl AppPlugin<S, C> + 'static) -> Self {
-        self.plugins.push(Box::new(plugin));
+        self.plugins.push((Box::new(plugin), None));
+        self
+    }
+
+    /// Register a plugin, with local routes nested under the given prefix.
+    pub fn register_at(
+        mut self,
+        plugin: impl AppPlugin<S, C> + 'static,
+        prefix: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        self.plugins.push((Box::new(plugin), Some(prefix.into())));
         self
     }
 
@@ -163,7 +154,7 @@ where
         S::Error: Display,
     {
         let mut app = AppInitContext::new(Arc::clone(&self.config), self.state);
-        for plugin in self.plugins.iter_mut() {
+        for (plugin, _) in self.plugins.iter_mut() {
             app = plugin
                 .on_init(app)
                 .await
@@ -174,22 +165,24 @@ where
             .map_err(|err| ::anyhow::anyhow!("Error creating state: {err}"))?;
 
         let mut global_router = self.base_router;
-        for plugin in self.plugins.iter_mut() {
+        for (plugin, prefix) in self.plugins.iter_mut() {
+            // Build and mount local router
             let local_router = plugin
-                .on_local_setup(
+                .local_setup(
                     AppContext::new(Arc::clone(&self.config), state.clone()),
                     Router::new(),
                 )
                 .with_context(|| {
                     format!("Error in on_local_setup hook of plugin '{}'", plugin.name())
                 })?;
-            global_router = match plugin.prefix() {
-                Some(prefix) => global_router.nest(&prefix, local_router),
+            global_router = match prefix.as_deref() {
+                Some(prefix) => global_router.nest(prefix, local_router),
                 None => global_router.merge(local_router),
             };
 
+            // Apply global setup hook
             global_router = plugin
-                .on_setup(
+                .global_setup(
                     AppContext::new(Arc::clone(&self.config), state.clone()),
                     global_router,
                 )
@@ -200,9 +193,9 @@ where
             .plugins
             .into_iter()
             .rev()
-            .filter_map(|mut p| {
-                let name = p.name();
-                let shutdown_fn = p.on_shutdown()?;
+            .filter_map(|(mut plugin, _)| {
+                let name = plugin.name();
+                let shutdown_fn = plugin.on_shutdown()?;
                 Some((name, shutdown_fn))
             })
             .collect();
@@ -322,7 +315,7 @@ mod tests {
                 app.insert(init_value)?;
                 Ok(app)
             })
-            .on_setup(move |app, router| {
+            .global_setup(move |app, router| {
                 assert_eq!(app.state().value.as_str(), setup_value.as_str());
                 Ok(router)
             });
@@ -370,7 +363,7 @@ mod tests {
                     app.insert(Arc::clone(&app.config().label))?;
                     Ok(app)
                 })
-                .on_setup(move |app, router| {
+                .global_setup(move |app, router| {
                     setup_events
                         .lock()
                         .expect("events lock poisoned")
@@ -583,8 +576,8 @@ mod tests {
         .unwrap()
         .register(
             AdHocPlugin::named("middleware")
-                .on_setup(|_app, router| Ok(router.route("/middleware", get(handler))))
-                .middleware(middleware),
+                .global_setup(|_app, router| Ok(router.route("/middleware", get(handler))))
+                .global_middleware(middleware),
         );
 
         let app = futures::executor::block_on(app.init()).expect("app should initialize");

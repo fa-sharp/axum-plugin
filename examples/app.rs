@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
     // Create your plugins using AdHocPlugin. Can use a type alias here for ease of use.
     type Plugin = AdHocPlugin<AppState, Config>;
 
-    let health_plugin = Plugin::named("Health").on_setup(|app, router| {
+    let health_plugin = Plugin::named("Health").global_setup(|app, router| {
         tracing::info!(service = %app.config().service_name, "configuring routes");
         Ok(router.route("/health", get(health)))
     });
@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(app)
         })
-        .on_setup(|app, router| {
+        .global_setup(|app, router| {
             let metrics = Arc::clone(&app.state().metrics);
             let router = router
                 .route("/metrics", get(metrics_handler))
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(router)
         })
-        .middleware(metrics_middleware)
+        .global_middleware(metrics_middleware)
         .on_shutdown(async move |app| {
             app.state().metrics.flush().await;
             Ok(())

@@ -9,7 +9,7 @@ mod adhoc;
 mod context;
 mod init;
 
-pub use adhoc::{AdHocPlugin, IntoRequestHookResult, IntoResponseHookResult, PluginMiddleware};
+pub use adhoc::{AdHocPlugin, PluginMiddleware};
 pub use context::AppContext;
 pub use init::AppInitContext;
 
@@ -45,11 +45,6 @@ where
         Cow::Borrowed(std::any::type_name::<Self>())
     }
 
-    /// The prefix to mount the plugin's routes, if any.
-    fn prefix(&self) -> Option<Cow<'static, str>> {
-        None
-    }
-
     /// Runs during startup before typed state exists.
     ///
     /// Use this hook to insert or transform values in state.
@@ -57,20 +52,18 @@ where
         async { Ok(app) }.boxed()
     }
 
-    /// Runs after state has been initialized. Hook can be used to add routes, middleware, and services.
-    /// Middleware/layers added to the router here will apply to all previously registered routes.
-    fn on_setup(&mut self, app: AppContext<S, C>, global_router: Router<S>) -> Result<Router<S>> {
-        Ok(global_router)
+    /// Runs after state has been initialized, to manipulate the local router for this plugin.
+    fn local_setup(&mut self, app: AppContext<S, C>, local_router: Router<S>) -> Result<Router<S>> {
+        Ok(local_router)
     }
 
-    /// Runs after state has been initialized. Hook can be used to add local routes, middleware, and services.
-    /// Middleware/layers added to this router will only apply to routes defined in this plugin.
-    fn on_local_setup(
+    /// Runs after state has been initialized, to manipulate the global router.
+    fn global_setup(
         &mut self,
         app: AppContext<S, C>,
-        local_router: Router<S>,
+        global_router: Router<S>,
     ) -> Result<Router<S>> {
-        Ok(local_router)
+        Ok(global_router)
     }
 
     /// Return shutdown work for this plugin.

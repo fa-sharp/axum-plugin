@@ -4,7 +4,7 @@ use axum::{
     Router,
     extract::Request,
     middleware::{self, FromFnLayer},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::Route,
 };
 use futures::FutureExt;
@@ -46,8 +46,10 @@ let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
 pub struct AdHocPlugin<S = TypeMapState, C = ()> {
     name: Cow<'static, str>,
     on_init: Option<InitFn<C>>,
-    on_setup: Option<SetupFn<S, C>>,
-    middleware: Vec<SetupFn<S, C>>,
+    global_setup: Option<SetupFn<S, C>>,
+    local_setup: Option<SetupFn<S, C>>,
+    local_middleware: Vec<SetupFn<S, C>>,
+    global_middleware: Vec<SetupFn<S, C>>,
     on_shutdown: Option<ShutdownFn<S, C>>,
 }
 
@@ -66,8 +68,10 @@ impl<S, C> AdHocPlugin<S, C> {
         Self {
             name: Cow::Borrowed("adhoc"),
             on_init: None,
-            on_setup: None,
-            middleware: Vec::new(),
+            local_setup: None,
+            local_middleware: Vec::new(),
+            global_setup: None,
+            global_middleware: Vec::new(),
             on_shutdown: None,
         }
     }
@@ -77,8 +81,10 @@ impl<S, C> AdHocPlugin<S, C> {
         Self {
             name: name.into(),
             on_init: None,
-            on_setup: None,
-            middleware: Vec::new(),
+            local_setup: None,
+            local_middleware: Vec::new(),
+            global_setup: None,
+            global_middleware: Vec::new(),
             on_shutdown: None,
         }
     }
@@ -117,8 +123,21 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
+    /// Similar to [`global_setup`], but manipulates the local router
+    /// only. Routes added here will be nested under a prefix if configured.
+    /// Middleware added here will only affect requests handled by this router.
+    ///
+    pub fn local_setup<F>(mut self, on_setup: F) -> Self
+    where
+        F: FnOnce(AppContext<S, C>, Router<S>) -> Result<Router<S>> + Send + 'static,
+    {
+        self.local_setup = Some(Box::new(on_setup));
+        self
+    }
+
     /**
-    Hook that runs after state is initialized, to build the router. The closure takes
+    Hook that runs after state is initialized, to manipulate the global router.
+    The closure takes
     a [`AppContext`] (with access to state and config) and [axum::Router]
     as parameters, and should return a Result of a transformed router.
 
@@ -131,7 +150,7 @@ impl<S, C> AdHocPlugin<S, C> {
     struct AppState;
 
     let plugin = AdHocPlugin::<AppState>::named("myplugin")
-        .on_setup(|app, router| {
+        .global_setup(|app, router| {
             let routes = axum::Router::new()
                 .route("/foo", get(async || "foo"));
 
@@ -139,47 +158,62 @@ impl<S, C> AdHocPlugin<S, C> {
         });
     ```
     */
-    pub fn on_setup<F>(mut self, on_setup: F) -> Self
+    pub fn global_setup<F>(mut self, on_setup: F) -> Self
     where
         F: FnOnce(AppContext<S, C>, Router<S>) -> Result<Router<S>> + Send + 'static,
     {
-        self.on_setup = Some(Box::new(on_setup));
+        self.global_setup = Some(Box::new(on_setup));
         self
     }
 
-    /// Add middleware using [`axum::middleware::from_fn_with_state`] internally. The middleware function
-    /// can use normal axum extractors.
-    ///
-    /// ```
-    /// use axum::{
-    ///     extract::{Request, State},
-    ///     middleware::Next,
-    ///     response::Response,
-    /// };
-    /// use axum_plugin::AdHocPlugin;
-    ///
-    /// #[derive(Clone)]
-    /// struct AppState;
-    ///
-    /// async fn middleware(
-    ///     // Add extractors...
-    ///     State(state): State<AppState>,
-    ///     req: Request,
-    ///     next: Next,
-    /// ) -> Response {
-    ///     next.run(req).await
-    /// }
-    ///
-    /// let plugin = AdHocPlugin::<AppState>::named("middleware")
-    ///     .middleware(middleware);
-    /// ```
-    pub fn middleware<F, T>(mut self, middleware: F) -> Self
+    /**
+    Add middleware that will apply to the global app router. The middleware function
+    can use normal axum extractors. Uses  [`axum::middleware::from_fn_with_state`] internally
+
+    ```
+    use axum::{
+        extract::{Request, State},
+        middleware::Next,
+        response::Response,
+    };
+    use axum_plugin::AdHocPlugin;
+
+    #[derive(Clone)]
+    struct AppState;
+
+    async fn middleware(
+        // Add extractors...
+        State(state): State<AppState>,
+        req: Request,
+        next: Next,
+    ) -> Response {
+        next.run(req).await
+    }
+
+    let plugin = AdHocPlugin::<AppState>::named("middleware")
+        .global_middleware(middleware);
+    ```
+    */
+    pub fn global_middleware<F, T>(mut self, middleware: F) -> Self
     where
         S: Clone + Send + Sync + 'static,
         C: Send + Sync + 'static,
         F: PluginMiddleware<S, T>,
     {
-        self.middleware.push(Box::new(move |app, router| {
+        self.global_middleware.push(Box::new(move |app, router| {
+            Ok(middleware.layer(app.state().clone(), router))
+        }));
+        self
+    }
+
+    /// Add middleware that is only applied to the local router for this plugin.
+    pub fn local_middleware<F, T>(mut self, middleware: F) -> Self
+    where
+        S: Clone + Send + Sync + 'static,
+        C: Send + Sync + 'static,
+        F: PluginMiddleware<S, T>,
+    {
+        self.local_middleware.push(Box::new(move |app, router| {
             Ok(middleware.layer(app.state().clone(), router))
         }));
         self
@@ -197,49 +231,6 @@ impl<S, C> AdHocPlugin<S, C> {
     {
         self.on_shutdown = Some(Box::new(move |s| Box::pin(on_shutdown(s))));
         self
-    }
-}
-
-/// Trait for converting the result of a request hook into a [`Result<Request, Response>`].
-pub trait IntoRequestHookResult {
-    #[allow(clippy::result_large_err)]
-    fn into_request_result(self) -> std::result::Result<Request, Response>;
-}
-impl IntoRequestHookResult for Request {
-    fn into_request_result(self) -> std::result::Result<Request, Response> {
-        Ok(self)
-    }
-}
-impl<E> IntoRequestHookResult for std::result::Result<Request, E>
-where
-    E: IntoResponse,
-{
-    fn into_request_result(self) -> std::result::Result<Request, Response> {
-        match self {
-            Ok(req) => Ok(req),
-            Err(e) => Err(e.into_response()),
-        }
-    }
-}
-
-/// Trait for converting the result of a response hook into a [`Response`].
-pub trait IntoResponseHookResult {
-    fn into_response(self) -> Response;
-}
-impl IntoResponseHookResult for Response {
-    fn into_response(self) -> Response {
-        self
-    }
-}
-impl<E> IntoResponseHookResult for std::result::Result<Response, E>
-where
-    E: IntoResponse,
-{
-    fn into_response(self) -> Response {
-        match self {
-            Ok(resp) => resp,
-            Err(e) => e.into_response(),
-        }
     }
 }
 
@@ -284,15 +275,28 @@ where
         }
     }
 
-    fn on_setup(&mut self, app: AppContext<S, C>, router: Router<S>) -> Result<Router<S>> {
-        let router = match self.on_setup.take() {
+    fn global_setup(&mut self, app: AppContext<S, C>, router: Router<S>) -> Result<Router<S>> {
+        let router = match self.global_setup.take() {
             Some(setup_fn) => setup_fn(app.clone(), router),
             None => Ok(router),
         }?;
 
-        self.middleware
+        self.global_middleware
             .drain(..)
             .try_fold(router, |router, middleware| middleware(app.clone(), router))
+    }
+
+    fn local_setup(&mut self, app: AppContext<S, C>, local_router: Router<S>) -> Result<Router<S>> {
+        let local_router = match self.local_setup.take() {
+            Some(setup_fn) => setup_fn(app.clone(), local_router),
+            None => Ok(local_router),
+        }?;
+
+        self.local_middleware
+            .drain(..)
+            .try_fold(local_router, |router, middleware| {
+                middleware(app.clone(), router)
+            })
     }
 
     fn on_shutdown(&mut self) -> Option<ShutdownFn<S, C>> {

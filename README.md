@@ -27,9 +27,9 @@ async fn main() -> Result<()> {
             app.insert(Arc::new(String::from("foo_state")))?;
             Ok(app)
         })
-        .on_setup(|app, router| {
-            let bar_extension = Arc::new(app.config().bar.to_owned());
-            Ok(router.layer(axum::Extension(bar_extension)))
+        .global_setup(|app, router| {
+            let my_extension = Arc::new(app.config().bar.to_owned());
+            Ok(router.layer(axum::Extension(my_extension)))
         });
 
     let config = AppConfig { bar: String::from("bar") };
@@ -132,7 +132,7 @@ async fn auth(
 }
 
 let plugin = AdHocPlugin::<AppState, AppConfig>::named("auth")
-    .middleware(auth);
+    .global_middleware(auth);
 ```
 
 ## Plugin Lifecycle
