@@ -9,10 +9,10 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 /// different type — if you need to store multiple values of the same type, use
 /// a newtype wrapper like `struct Foo(type)`.
 ///
-/// To access your config, add a field with type `Arc<AppConfig>`.
+/// To access your config in the state, add a field with type `Arc<AppConfig>`.
 ///
 /// ```ignore
-/// #[derive(AppState)]
+/// #[derive(AppState, Clone)]
 /// struct AppState {
 ///     config: Arc<AppConfig>,
 ///     pool: Pool,
@@ -20,8 +20,8 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 /// }
 /// ```
 ///
-/// Axum state must be Clone: you can wrap non-cloneable fields in `Arc` individually, or you
-/// can use `Arc<AppState>` as your axum state type by implementing `TryFrom<TypeMap>` for `Arc<AppState>`:
+/// Axum state must be Clone: you can wrap non-cheaply-cloneable fields in `Arc` individually, or you
+/// can also use `Arc<AppState>` as your global state type by implementing `TryFrom<TypeMap>` for `Arc<AppState>`:
 ///
 /// ```ignore
 /// impl TryFrom<TypeMap> for Arc<AppState> {

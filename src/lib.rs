@@ -17,7 +17,7 @@ pub mod plugin;
 pub mod utils;
 
 pub use app::{App, InitializedApp};
-pub use plugin::{AdHocPlugin, AppContext, PluginMiddleware};
+pub use plugin::{AdHocPlugin, AppContext, AppInitContext, AppPlugin, PluginMiddleware};
 
 /// Error type used by this crate.
 pub type Error = anyhow::Error;

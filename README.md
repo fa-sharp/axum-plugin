@@ -32,7 +32,9 @@ async fn main() -> Result<()> {
             Ok(router.layer(axum::Extension(bar_extension)))
         });
 
-    let app = App::<AppState, AppConfig>::with_config(AppConfig { bar: String::from("bar") })
+    let config = AppConfig { bar: String::from("bar") };
+
+    let app = App::<AppState, AppConfig>::with_config(config)
         .register(my_plugin)
         .init()
         .await?;
@@ -70,8 +72,8 @@ pub async fn main() -> Result<()> {
     // Load environment variables prefixed with `APP_`, e.g. `APP_FOO`, `APP_BAR`
     let app = App::<TypeMapState, AppConfig>::from_env("APP_")?
         .register(AdHocPlugin::<_, AppConfig>::named("my_plugin").on_init(async |app| {
-            // Now you can access your config
-            let foo = &app.config().foo;
+            // access extracted config
+            let foo: &str = &app.config().foo;
 
             Ok(app)
         }))
@@ -95,19 +97,22 @@ pub async fn main() -> Result<()> {
 ## Middleware Extractors
 
 Use `AdHocPlugin::middleware` when request handling needs normal axum extractors or `Next`.
-Add `AppContext<S, C>` as an extractor to access finalized state and config.
 
 ```rust
+use std::sync::Arc;
+
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::HeaderMap,
     middleware::Next,
     response::Response,
 };
-use axum_plugin::{AdHocPlugin, AppContext};
+use axum_plugin::AdHocPlugin;
 
 #[derive(Clone)]
-struct AppState;
+struct AppState {
+    config: Arc<AppConfig>,
+}
 
 #[derive(Clone)]
 struct AppConfig {
@@ -115,12 +120,12 @@ struct AppConfig {
 }
 
 async fn auth(
-    app: AppContext<AppState, AppConfig>,
+    State(state): State<AppState>,
     headers: HeaderMap,
     req: Request,
     next: Next,
 ) -> Response {
-    let _expected_key = &app.config().api_key;
+    let _expected_key = &state.config.api_key;
     let _headers = headers;
 
     next.run(req).await

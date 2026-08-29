@@ -1,6 +1,4 @@
-use std::{convert::Infallible, sync::Arc};
-
-use axum::{extract::FromRequestParts, http::request::Parts};
+use std::sync::Arc;
 
 use crate::TypeMapState;
 
@@ -40,20 +38,5 @@ impl<S, C> AppContext<S, C> {
     /// Borrow the finalized application state.
     pub fn state(&self) -> &S {
         &self.state
-    }
-}
-
-impl<S, C> FromRequestParts<AppContext<S, C>> for AppContext<S, C>
-where
-    S: Clone + Send + Sync + 'static,
-    C: Send + Sync + 'static,
-{
-    type Rejection = Infallible;
-
-    async fn from_request_parts(
-        _parts: &mut Parts,
-        app: &AppContext<S, C>,
-    ) -> Result<Self, Self::Rejection> {
-        Ok(app.clone())
     }
 }

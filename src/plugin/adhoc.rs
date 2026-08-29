@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::Infallible, sync::Arc};
+use std::{borrow::Cow, convert::Infallible};
 
 use axum::{
     Router,
@@ -12,9 +12,7 @@ use tower::{Layer, Service};
 
 use crate::{
     Result, TypeMapState,
-    plugin::{
-        AppContext, AppInitContext, AppPlugin, InitFuture, OnRequestFn, OnResponseFn, ShutdownFn,
-    },
+    plugin::{AppContext, AppInitContext, AppPlugin, InitFuture, ShutdownFn},
 };
 
 /**
@@ -48,8 +46,6 @@ let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
 pub struct AdHocPlugin<S = TypeMapState, C = ()> {
     name: Cow<'static, str>,
     on_init: Option<InitFn<C>>,
-    on_request: Option<OnRequestFn<S, C>>,
-    on_response: Option<OnResponseFn<S, C>>,
     on_setup: Option<SetupFn<S, C>>,
     middleware: Vec<SetupFn<S, C>>,
     on_shutdown: Option<ShutdownFn<S, C>>,
@@ -70,8 +66,6 @@ impl<S, C> AdHocPlugin<S, C> {
         Self {
             name: Cow::Borrowed("adhoc"),
             on_init: None,
-            on_request: None,
-            on_response: None,
             on_setup: None,
             middleware: Vec::new(),
             on_shutdown: None,
@@ -83,8 +77,6 @@ impl<S, C> AdHocPlugin<S, C> {
         Self {
             name: name.into(),
             on_init: None,
-            on_request: None,
-            on_response: None,
             on_setup: None,
             middleware: Vec::new(),
             on_shutdown: None,
@@ -125,30 +117,12 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
-    /// Asynchronous hook that will run on each request. The closure takes a [`AppContext`] (with
-    /// access to state and config) and [`Request`] as parameters, and should return the
-    /// transformed request. If returning a result, the error type `E` must implement [`IntoResponse`].
-    ///
-    /// This hook runs **before** any middleware defined in this plugin's `on_setup` hook.
-    pub fn on_request<F, T, R>(mut self, on_request: F) -> Self
-    where
-        F: Fn(AppContext<S, C>, Request) -> T + Send + Sync + 'static,
-        T: Future<Output = R> + Send + 'static,
-        R: IntoRequestHookResult,
-    {
-        self.on_request = Some(Arc::new(move |s, r| {
-            #[allow(clippy::result_large_err)]
-            Box::pin(on_request(s, r).map(|req| req.into_request_result()))
-        }));
-        self
-    }
-
     /**
-    Hook that runs after typed state has been created. The closure takes
+    Hook that runs after state is initialized, to build the router. The closure takes
     a [`AppContext`] (with access to state and config) and [axum::Router]
     as parameters, and should return a Result of a transformed router.
 
-    Use this hook to add routes, services, middleware, or router state.
+    Use this hook to add routes and global middleware/services.
     ```
     use axum::routing::get;
     use axum_plugin::AdHocPlugin;
@@ -173,28 +147,26 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
-    /// Add middleware using [`axum::middleware::from_fn_with_state`] internally.
-    ///
-    /// The middleware function can use normal axum extractors. Add [`AppContext`] as an extractor
-    /// to access finalized app state and config.
+    /// Add middleware using [`axum::middleware::from_fn_with_state`] internally. The middleware function
+    /// can use normal axum extractors.
     ///
     /// ```
     /// use axum::{
-    ///     extract::Request,
+    ///     extract::{Request, State},
     ///     middleware::Next,
     ///     response::Response,
     /// };
-    /// use axum_plugin::{AdHocPlugin, AppContext};
+    /// use axum_plugin::AdHocPlugin;
     ///
     /// #[derive(Clone)]
     /// struct AppState;
     ///
     /// async fn middleware(
-    ///     app: AppContext<AppState>,
+    ///     // Add extractors...
+    ///     State(state): State<AppState>,
     ///     req: Request,
     ///     next: Next,
     /// ) -> Response {
-    ///     let _state = app.state();
     ///     next.run(req).await
     /// }
     ///
@@ -205,27 +177,10 @@ impl<S, C> AdHocPlugin<S, C> {
     where
         S: Clone + Send + Sync + 'static,
         C: Send + Sync + 'static,
-        F: PluginMiddleware<S, C, T>,
+        F: PluginMiddleware<S, T>,
     {
         self.middleware.push(Box::new(move |app, router| {
-            let app = app.clone();
-            Ok(middleware.layer(app, router))
-        }));
-        self
-    }
-
-    /// Asynchronous hook that will run on each response. The closure takes a [`AppContext`] (with
-    /// access to state and config) and [`Response`] as parameters, and should return the
-    /// transformed response. Can also return a `Result<Response, E>` where E implements
-    /// [`IntoResponse`].
-    pub fn on_response<F, T, R>(mut self, on_response: F) -> Self
-    where
-        F: Fn(AppContext<S, C>, Response) -> T + Send + Sync + 'static,
-        T: Future<Output = R> + Send + 'static,
-        R: IntoResponseHookResult,
-    {
-        self.on_response = Some(Arc::new(move |s, r| {
-            Box::pin(on_response(s, r).map(|res| res.into_response()))
+            Ok(middleware.layer(app.state().clone(), router))
         }));
         self
     }
@@ -288,36 +243,34 @@ where
     }
 }
 
-/// Trait implemented by functions that can be used as extractor-aware plugin middleware.
-pub trait PluginMiddleware<S, C, T>: Clone + Send + 'static {
+/// Trait implemented by functions that can be used as plugin middleware with axum extractors.
+pub trait PluginMiddleware<S, T>: Clone + Send + 'static {
     /// Apply this middleware to a router.
-    fn layer(self, app: AppContext<S, C>, router: Router<S>) -> Router<S>;
+    fn layer(self, state: S, router: Router<S>) -> Router<S>;
 }
 
-impl<S, C, F, T> PluginMiddleware<S, C, T> for F
+impl<S, F, T> PluginMiddleware<S, T> for F
 where
     S: Clone + Send + Sync + 'static,
-    C: Send + Sync + 'static,
     F: Clone + Send + 'static,
     T: 'static,
-    FromFnLayer<F, AppContext<S, C>, T>: Layer<Route> + Clone + Send + Sync + 'static,
-    <FromFnLayer<F, AppContext<S, C>, T> as Layer<Route>>::Service:
+    FromFnLayer<F, S, T>: Layer<Route> + Clone + Send + Sync + 'static,
+    <FromFnLayer<F, S, T> as Layer<Route>>::Service:
         Service<Request> + Clone + Send + Sync + 'static,
-    <<FromFnLayer<F, AppContext<S, C>, T> as Layer<Route>>::Service as Service<Request>>::Response:
+    <<FromFnLayer<F, S, T> as Layer<Route>>::Service as Service<Request>>::Response:
         IntoResponse + 'static,
-    <<FromFnLayer<F, AppContext<S, C>, T> as Layer<Route>>::Service as Service<Request>>::Error:
+    <<FromFnLayer<F, S, T> as Layer<Route>>::Service as Service<Request>>::Error:
         Into<Infallible> + 'static,
-    <<FromFnLayer<F, AppContext<S, C>, T> as Layer<Route>>::Service as Service<Request>>::Future:
-        Send + 'static,
+    <<FromFnLayer<F, S, T> as Layer<Route>>::Service as Service<Request>>::Future: Send + 'static,
 {
-    fn layer(self, app: AppContext<S, C>, router: Router<S>) -> Router<S> {
-        router.layer(middleware::from_fn_with_state(app, self))
+    fn layer(self, state: S, router: Router<S>) -> Router<S> {
+        router.layer(middleware::from_fn_with_state(state, self))
     }
 }
 
 impl<S, C> AppPlugin<S, C> for AdHocPlugin<S, C>
 where
-    S: Clone,
+    S: Send + Sync + Clone + 'static,
     C: Send + Sync + 'static,
 {
     fn name(&self) -> Cow<'static, str> {
@@ -331,13 +284,6 @@ where
         }
     }
 
-    fn on_request(&mut self) -> Option<OnRequestFn<S, C>> {
-        match self.on_request.take() {
-            Some(on_request) => Some(on_request),
-            None => None,
-        }
-    }
-
     fn on_setup(&mut self, app: AppContext<S, C>, router: Router<S>) -> Result<Router<S>> {
         let router = match self.on_setup.take() {
             Some(setup_fn) => setup_fn(app.clone(), router),
@@ -347,13 +293,6 @@ where
         self.middleware
             .drain(..)
             .try_fold(router, |router, middleware| middleware(app.clone(), router))
-    }
-
-    fn on_response(&mut self) -> Option<OnResponseFn<S, C>> {
-        match self.on_response.take() {
-            Some(on_response) => Some(on_response),
-            None => None,
-        }
     }
 
     fn on_shutdown(&mut self) -> Option<ShutdownFn<S, C>> {

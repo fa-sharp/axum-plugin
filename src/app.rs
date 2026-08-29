@@ -1,7 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
 use anyhow::Context;
-use axum::{Router, extract::Request, response::Response, routing::MethodRouter};
+use axum::{Router, routing::MethodRouter};
 use futures::FutureExt;
 use type_map::concurrent::TypeMap;
 
@@ -173,38 +173,27 @@ where
         let state = S::try_from(app.into_state())
             .map_err(|err| ::anyhow::anyhow!("Error creating state: {err}"))?;
 
-        let mut router = self.base_router;
+        let mut global_router = self.base_router;
         for plugin in self.plugins.iter_mut() {
-            router = plugin
+            let local_router = plugin
+                .on_local_setup(
+                    AppContext::new(Arc::clone(&self.config), state.clone()),
+                    Router::new(),
+                )
+                .with_context(|| {
+                    format!("Error in on_local_setup hook of plugin '{}'", plugin.name())
+                })?;
+            global_router = match plugin.prefix() {
+                Some(prefix) => global_router.nest(&prefix, local_router),
+                None => global_router.merge(local_router),
+            };
+
+            global_router = plugin
                 .on_setup(
                     AppContext::new(Arc::clone(&self.config), state.clone()),
-                    router,
+                    global_router,
                 )
                 .with_context(|| format!("Error in on_setup hook of plugin '{}'", plugin.name()))?;
-
-            if let Some(on_request) = plugin.on_request() {
-                let config = Arc::clone(&self.config);
-                let state = state.clone();
-                let layer = axum::middleware::map_request(move |req: Request| {
-                    let config = Arc::clone(&config);
-                    let state = state.clone();
-
-                    on_request(AppContext::new(config, state.clone()), req)
-                });
-                router = router.layer(layer);
-            }
-
-            if let Some(on_response) = plugin.on_response() {
-                let config = Arc::clone(&self.config);
-                let state = state.clone();
-                let layer = axum::middleware::map_response(move |res: Response| {
-                    let config = Arc::clone(&config);
-                    let state = state.clone();
-
-                    on_response(AppContext::new(config, state.clone()), res)
-                });
-                router = router.layer(layer);
-            }
         }
 
         let shutdown_fns: Vec<_> = self
@@ -235,7 +224,7 @@ where
 
         Ok(InitializedApp {
             config: self.config,
-            router,
+            router: global_router,
             state,
             on_shutdown,
         })
@@ -303,6 +292,7 @@ mod tests {
 
     use axum::{
         body::Body,
+        extract::{Request, State},
         http::{HeaderMap, HeaderValue, StatusCode},
         middleware::Next,
         response::Response,
@@ -571,13 +561,12 @@ mod tests {
         }
 
         async fn middleware(
-            app: AppContext<TestState, TestConfig>,
+            state: State<TestState>,
             headers: HeaderMap,
             req: Request,
             next: Next,
         ) -> Response {
-            assert_eq!(app.state().value.as_str(), "middleware-state");
-            assert_eq!(app.config().label.as_str(), "middleware-config");
+            assert_eq!(state.value.as_str(), "middleware-state");
             assert_eq!(headers.get("x-input").unwrap(), "yes");
 
             let mut response = next.run(req).await;

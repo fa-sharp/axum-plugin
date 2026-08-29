@@ -45,6 +45,11 @@ where
         Cow::Borrowed(std::any::type_name::<Self>())
     }
 
+    /// The prefix to mount the plugin's routes, if any.
+    fn prefix(&self) -> Option<Cow<'static, str>> {
+        None
+    }
+
     /// Runs during startup before typed state exists.
     ///
     /// Use this hook to insert or transform values in state.
@@ -52,21 +57,20 @@ where
         async { Ok(app) }.boxed()
     }
 
-    /// Runs before each request asynchronously, before any middleware defined in `on_setup`.
-    fn on_request(&mut self) -> Option<OnRequestFn<S, C>> {
-        None
+    /// Runs after state has been initialized. Hook can be used to add routes, middleware, and services.
+    /// Middleware/layers added to the router here will apply to all previously registered routes.
+    fn on_setup(&mut self, app: AppContext<S, C>, global_router: Router<S>) -> Result<Router<S>> {
+        Ok(global_router)
     }
 
-    /// Runs after each response asynchronously, after any middleware defined in `on_setup`.
-    fn on_response(&mut self) -> Option<OnResponseFn<S, C>> {
-        None
-    }
-
-    /// Runs after typed state has been created.
-    ///
-    /// Use this hook to add routes, services, middleware, or router state.
-    fn on_setup(&mut self, app: AppContext<S, C>, router: Router<S>) -> Result<Router<S>> {
-        Ok(router)
+    /// Runs after state has been initialized. Hook can be used to add local routes, middleware, and services.
+    /// Middleware/layers added to this router will only apply to routes defined in this plugin.
+    fn on_local_setup(
+        &mut self,
+        app: AppContext<S, C>,
+        local_router: Router<S>,
+    ) -> Result<Router<S>> {
+        Ok(local_router)
     }
 
     /// Return shutdown work for this plugin.

@@ -3,12 +3,11 @@ use std::{net::SocketAddr, str, sync::Arc};
 use axum::{
     Extension,
     extract::{Request, State},
-    http::HeaderValue,
     middleware::Next,
     response::Response,
     routing::get,
 };
-use axum_plugin::{AdHocPlugin, App, AppContext, AppState};
+use axum_plugin::{AdHocPlugin, App, AppState};
 
 #[derive(Clone, AppState)]
 struct AppState {
@@ -42,12 +41,8 @@ async fn metrics_handler(Extension(metrics): Extension<Arc<Metrics>>) -> &'stati
     "metrics:ok"
 }
 
-async fn metrics_middleware(
-    app: AppContext<AppState, Config>,
-    req: Request,
-    next: Next,
-) -> Response {
-    let _metrics = &app.state().metrics;
+async fn metrics_middleware(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let _metrics = &state.metrics;
     next.run(req).await
 }
 
@@ -81,12 +76,6 @@ async fn main() -> anyhow::Result<()> {
             Ok(router)
         })
         .middleware(metrics_middleware)
-        .on_response(async |_app, mut res| {
-            res.headers_mut()
-                .insert("X-Foo", HeaderValue::from_static("bar"));
-
-            res
-        })
         .on_shutdown(async move |app| {
             app.state().metrics.flush().await;
             Ok(())
