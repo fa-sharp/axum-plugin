@@ -46,9 +46,9 @@ let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
 pub struct AdHocPlugin<S = TypeMapState, C = ()> {
     name: Cow<'static, str>,
     on_init: Option<InitFn<C>>,
-    global_setup: Option<SetupFn<S, C>>,
     local_setup: Option<SetupFn<S, C>>,
     local_middleware: Vec<SetupFn<S, C>>,
+    global_setup: Option<SetupFn<S, C>>,
     global_middleware: Vec<SetupFn<S, C>>,
     on_shutdown: Option<ShutdownFn<S, C>>,
 }
@@ -123,7 +123,7 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
-    /// Similar to [`global_setup`], but manipulates the local router
+    /// Similar to [`Self::global_setup`], but manipulates the local router
     /// only. Routes added here will be nested under a prefix if configured.
     /// Middleware added here will only affect requests handled by this router.
     ///
@@ -167,8 +167,9 @@ impl<S, C> AdHocPlugin<S, C> {
     }
 
     /**
-    Add middleware that will apply to the global app router. The middleware function
-    can use normal axum extractors. Uses  [`axum::middleware::from_fn_with_state`] internally
+    Add middleware that will apply to the accumulated global app router. The middleware function
+    can use normal axum extractors, including [`axum::extract::State`] for the app state.
+    Uses [`axum::middleware::from_fn_with_state`] internally.
 
     ```
     use axum::{
@@ -207,6 +208,10 @@ impl<S, C> AdHocPlugin<S, C> {
     }
 
     /// Add middleware that is only applied to the local router for this plugin.
+    ///
+    /// The middleware function can use normal axum extractors, including
+    /// [`axum::extract::State`] for the app state. Uses
+    /// [`axum::middleware::from_fn_with_state`] internally.
     pub fn local_middleware<F, T>(mut self, middleware: F) -> Self
     where
         S: Clone + Send + Sync + 'static,

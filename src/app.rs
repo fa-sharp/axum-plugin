@@ -186,7 +186,9 @@ where
                     AppContext::new(Arc::clone(&self.config), state.clone()),
                     global_router,
                 )
-                .with_context(|| format!("Error in on_setup hook of plugin '{}'", plugin.name()))?;
+                .with_context(|| {
+                    format!("Error in global_setup hook of plugin '{}'", plugin.name())
+                })?;
         }
 
         let shutdown_fns: Vec<_> = self

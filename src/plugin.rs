@@ -1,6 +1,6 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
-use axum::{Router, extract::Request, response::Response};
+use axum::Router;
 use futures::{FutureExt, future::BoxFuture};
 
 use crate::{Result, TypeMapState};
@@ -15,17 +15,6 @@ pub use init::AppInitContext;
 
 /// Startup initialization future returned by [`AppPlugin::on_init`].
 pub type InitFuture<C = ()> = BoxFuture<'static, Result<AppInitContext<C>>>;
-
-/// Asynchronous hook that will run on each request, returned by [`AppPlugin::on_request`].
-pub type OnRequestFn<S = TypeMapState, C = ()> = Arc<
-    dyn Fn(AppContext<S, C>, Request) -> BoxFuture<'static, std::result::Result<Request, Response>>
-        + Send
-        + Sync,
->;
-
-/// Asynchronous hook that will run on each response, returned by [`AppPlugin::on_response`].
-pub type OnResponseFn<S = TypeMapState, C = ()> =
-    Arc<dyn Fn(AppContext<S, C>, Response) -> BoxFuture<'static, Response> + Send + Sync>;
 
 /// Shutdown function returned by [`AppPlugin::on_shutdown`]
 pub type ShutdownFn<S = TypeMapState, C = ()> =
