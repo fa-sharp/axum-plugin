@@ -168,10 +168,7 @@ where
         for (plugin, prefix) in self.plugins.iter_mut() {
             // Build and mount local router
             let local_router = plugin
-                .local_setup(
-                    AppContext::new(Arc::clone(&self.config), state.clone()),
-                    Router::new(),
-                )
+                .local_setup(AppContext::new(Arc::clone(&self.config), state.clone()))
                 .with_context(|| {
                     format!("Error in on_local_setup hook of plugin '{}'", plugin.name())
                 })?;

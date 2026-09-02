@@ -27,6 +27,7 @@ pub type ShutdownFuture = BoxFuture<'static, Result<()>>;
 #[allow(unused_variables, reason = "trait functions with default no-op")]
 pub trait AppPlugin<S = TypeMapState, C = ()>
 where
+    S: Send + Sync + Clone + 'static,
     C: Send + Sync + 'static,
 {
     /// Plugin name
@@ -41,9 +42,9 @@ where
         async { Ok(app) }.boxed()
     }
 
-    /// Runs after state has been initialized, to manipulate the local router for this plugin.
-    fn local_setup(&mut self, app: AppContext<S, C>, local_router: Router<S>) -> Result<Router<S>> {
-        Ok(local_router)
+    /// Runs after state has been initialized, to return the local router for this plugin.
+    fn local_setup(&mut self, app: AppContext<S, C>) -> Result<Router<S>> {
+        Ok(Router::<S>::new())
     }
 
     /// Runs after state has been initialized, to manipulate the global router.

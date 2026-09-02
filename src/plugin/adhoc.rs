@@ -46,7 +46,7 @@ let db_plugin = AdHocPlugin::<AppState, AppConfig>::named("database")
 pub struct AdHocPlugin<S = TypeMapState, C = ()> {
     name: Cow<'static, str>,
     on_init: Option<InitFn<C>>,
-    local_setup: Option<SetupFn<S, C>>,
+    local_setup: Option<LocalSetupFn<S, C>>,
     local_middleware: Vec<SetupFn<S, C>>,
     global_setup: Option<SetupFn<S, C>>,
     global_middleware: Vec<SetupFn<S, C>>,
@@ -55,6 +55,7 @@ pub struct AdHocPlugin<S = TypeMapState, C = ()> {
 
 type InitFn<C> = Box<dyn FnOnce(AppInitContext<C>) -> InitFuture<C> + Send>;
 type SetupFn<S, C> = Box<dyn FnOnce(AppContext<S, C>, Router<S>) -> Result<Router<S>> + Send>;
+type LocalSetupFn<S, C> = Box<dyn FnOnce(AppContext<S, C>) -> Result<Router<S>> + Send>;
 
 impl<S: 'static, C: 'static> Default for AdHocPlugin<S, C> {
     fn default() -> Self {
@@ -123,13 +124,13 @@ impl<S, C> AdHocPlugin<S, C> {
         self
     }
 
-    /// Similar to [`Self::global_setup`], but manipulates the local router
-    /// only. Routes added here will be nested under a prefix if configured.
+    /// Similar to [`Self::global_setup`], but returns a local router.
+    /// Routes added here will be nested under a prefix if configured.
     /// Middleware added here will only affect requests handled by this router.
     ///
     pub fn local_setup<F>(mut self, on_setup: F) -> Self
     where
-        F: FnOnce(AppContext<S, C>, Router<S>) -> Result<Router<S>> + Send + 'static,
+        F: FnOnce(AppContext<S, C>) -> Result<Router<S>> + Send + 'static,
     {
         self.local_setup = Some(Box::new(on_setup));
         self
@@ -291,10 +292,10 @@ where
             .try_fold(router, |router, middleware| middleware(app.clone(), router))
     }
 
-    fn local_setup(&mut self, app: AppContext<S, C>, local_router: Router<S>) -> Result<Router<S>> {
+    fn local_setup(&mut self, app: AppContext<S, C>) -> Result<Router<S>> {
         let local_router = match self.local_setup.take() {
-            Some(setup_fn) => setup_fn(app.clone(), local_router),
-            None => Ok(local_router),
+            Some(setup_fn) => setup_fn(app.clone()),
+            None => Ok(Router::<S>::new()),
         }?;
 
         self.local_middleware
