@@ -134,8 +134,11 @@ async fn auth(
 
 let plugin = AdHocPlugin::<AppState, AppConfig>::named("auth")
     .local_middleware(auth)
-    .local_setup(|app, router| {
-        Ok(router.route("/", get(async || "protected route")))
+    .local_setup(|app| {
+        let router = axum::Router::<AppState>::new()
+            .route("/", get(async || "protected route"));
+
+        Ok(router)
     });
 ```
 
