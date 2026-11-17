@@ -4,6 +4,7 @@ extern crate self as axum_plugin;
 
 use std::sync::Arc;
 
+#[cfg(feature = "macros")]
 pub use axum_plugin_macros::AppState;
 pub use type_map::concurrent::TypeMap;
 

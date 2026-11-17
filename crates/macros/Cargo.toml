@@ -2,6 +2,7 @@
 name = "axum-plugin-macros"
 version = "0.1.0"
 edition = "2024"
+description = "Macros for axum-plugin"
 
 [lib]
 proc-macro = true
