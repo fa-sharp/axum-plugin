@@ -2,7 +2,7 @@
 
 A small plugin layer for `axum` applications, inspired by plugin-based frameworks like [rocket](https://rocket.rs/) and [fastify](https://fastify.dev/). Plugins let you conveniently separate concerns and organize your server setup and teardown into plugins.
 
-## Examples
+## Example
 
 See the `examples` folder for full examples.
 
@@ -16,12 +16,14 @@ use axum_plugin::{AdHocPlugin, App, AppState, Result};
 struct AppState {
     foo: Arc<String>,
 }
+
 struct AppConfig {
     bar: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Create your plugins
     let my_plugin = AdHocPlugin::<AppState, AppConfig>::new()
         .on_init(async |mut app| {
             app.insert(Arc::new(String::from("foo_state")))?;
@@ -32,14 +34,16 @@ async fn main() -> Result<()> {
             Ok(router.layer(axum::Extension(my_extension)))
         });
 
+    // Create or load your configuration
     let config = AppConfig { bar: String::from("bar") };
 
+    // Register the plugins and initialize the app
     let app = App::<AppState, AppConfig>::with_config(config)
         .register(my_plugin)
         .init()
         .await?;
 
-    // Start server:
+    // Start server
     let addr: std::net::SocketAddr = "127.0.0.1:3000".parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.router())
@@ -53,9 +57,22 @@ async fn main() -> Result<()> {
 }
 ```
 
+## Creating plugins
+
+The simplest way to create a plugin is to use the `AdHocPlugin` helper. The following hooks are available:
+
+- `on_init`: runs during app initialization, allowing state to be built incrementally
+- `local_setup`: runs after state is built, allowing a plugin to build its own router
+- `global_setup`: runs after the plugin's local router is mounted, allowing the plugin to transform the accumulated app router
+- `on_shutdown`: runs during graceful shutdown, in reverse plugin registration order
+
+Use `App::register` to register the plugin, or use `App::register_at(plugin, "/prefix")` to mount the plugin's local routes under a prefix.
+
+For more complex plugins that need their own state, implement the `AppPlugin` trait directly.
+
 ## Config extraction
 
-With the `figment` feature enabled, typed config can be conveniently extracted from files, environment variables, or directly from a `figment::Figment`:
+With the `figment` feature enabled, typed config can be conveniently extracted from prefixed environment variables, TOML files, or directly from a `figment::Figment`:
 
 ```rust
 use axum_plugin::{AdHocPlugin, App, Result, TypeMapState};
@@ -85,18 +102,9 @@ pub async fn main() -> Result<()> {
 }
 ```
 
-## Available Hooks
-
-- `on_init`: runs during app initialization, allowing state to be built incrementally
-- `local_setup`: runs after state is built, allowing a plugin to build its own router
-- `global_setup`: runs after the plugin's local router is mounted, allowing the plugin to transform the accumulated app router
-- `on_shutdown`: runs during graceful shutdown, in reverse plugin registration order
-
-Use `App::register_at(plugin, "/prefix")` to mount a plugin's local routes under a prefix.
-
 ## Middleware Extractors
 
-Use `AdHocPlugin::local_middleware` or `AdHocPlugin::global_middleware` when request handling needs normal axum extractors or `Next`. Middleware receives the app state through `State<AppState>`, so the same middleware function can also be used directly with axum.
+Use `AdHocPlugin::local_middleware` or `AdHocPlugin::global_middleware` when request handling needs normal axum extractors or `Next`.
 
 ```rust
 use std::sync::Arc;
@@ -150,9 +158,9 @@ let plugin = AdHocPlugin::<AppState, AppConfig>::named("auth")
 2. Plugins' `on_init` hooks run in registration order, passing `AppInitContext<C>` with a `TypeMap` to build state.
 3. The final app state is built using `S::try_from(TypeMap)`.
 4. Each plugin's `local_setup` runs with a fresh local router.
-5. The plugin's `local_middleware` hooks are applied to that local router.
-6. The local router is merged into the app router, or nested under the prefix from `App::register_at`.
-7. The plugin's `global_setup` and `global_middleware` hooks run against the accumulated app router.
+   - The plugin's `local_middleware` hooks are applied to that local router.
+   - The local router is merged into the app router, or nested under the prefix from `App::register_at`.
+5. The plugin's `global_setup` and `global_middleware` hooks run against the accumulated app router.
 
 ### Request
 
