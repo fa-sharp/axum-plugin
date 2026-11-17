@@ -4,6 +4,8 @@ version = "0.3.0"
 edition = "2024"
 rust-version = "1.94"
 description = "A small plugin layer for axum applications"
+repository = "https://github.com/fa-sharp/axum-plugin"
+license = "MIT"
 keywords = ["axum", "config", "plugin", "setup"]
 categories = ["config", "web-programming"]
 

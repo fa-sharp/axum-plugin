@@ -3,6 +3,8 @@ name = "axum-plugin-macros"
 version = "0.1.0"
 edition = "2024"
 description = "Macros for axum-plugin"
+repository = "https://github.com/fa-sharp/axum-plugin"
+license = "MIT"
 
 [lib]
 proc-macro = true
