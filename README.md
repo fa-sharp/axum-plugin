@@ -70,6 +70,29 @@ Use `App::register` to register the plugin, or use `App::register_at(plugin, "/p
 
 For more complex plugins that need their own state, implement the `AppPlugin` trait directly.
 
+## Application state
+
+The `on_init` hook allows you to build your axum state incrementally through all your plugins, allowing you to separate things like connecting to a database, connecting to external services, transforming config values, etc.. Within the `on_init` hook, you can call `app.insert` to insert values into a temporary `TypeMap`. Later, when you register your plugins and call `app.init`, the TypeMap is extracted and transformed into your `AppState` struct, by calling `AppState::try_from(typemap)`.
+
+### AppState macro
+
+To derive the appropriate `TryFrom` for your state type, you can use the included `AppState` macro. This will extract each field's type from the temporary TypeMap, and return an error if any type is missing. **Each field must be a unique type** - you can use unit structs if you need to use the same type multiple times.
+
+```rust
+use axum_plugin::AppState;
+
+struct SecretKey(Vec<u8>);
+struct DbConnection;
+struct RedisService;
+
+#[derive(AppState)]
+pub struct AppState {
+    secret_key: SecretKey,
+    db: DbConnection,
+    redis: RedisService,
+}
+```
+
 ## Config extraction
 
 With the `figment` feature enabled, typed config can be conveniently extracted from prefixed environment variables, TOML files, or directly from a `figment::Figment`:
