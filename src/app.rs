@@ -59,7 +59,7 @@ where
     }
 
     /// Create an empty app by extracting config from a [`figment::Figment`].
-    #[cfg(feature = "figment")]
+    #[cfg(feature = "config")]
     pub fn from_figment(figment: figment::Figment) -> Result<Self>
     where
         C: serde::de::DeserializeOwned,
@@ -70,7 +70,7 @@ where
     /// Create an empty app by extracting config from (in order of priority):
     /// 1. TOML file
     /// 2. Config struct defaults
-    #[cfg(feature = "figment")]
+    #[cfg(feature = "config")]
     pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self>
     where
         C: serde::de::DeserializeOwned + serde::Serialize + Default,
@@ -87,7 +87,7 @@ where
     /// Create an empty app by extracting config from (in order of priority):
     /// 1. Prefixed environment variables
     /// 2. Config struct defaults
-    #[cfg(feature = "figment")]
+    #[cfg(feature = "config")]
     pub fn from_env(env_prefix: &str) -> Result<Self>
     where
         C: serde::de::DeserializeOwned + serde::Serialize + Default,
@@ -104,7 +104,7 @@ where
     /// 1. Prefixed environment variables
     /// 2. TOML file
     /// 3. Config struct defaults
-    #[cfg(feature = "figment")]
+    #[cfg(feature = "config")]
     pub fn from_env_and_file(env_prefix: &str, path: impl AsRef<std::path::Path>) -> Result<Self>
     where
         C: serde::de::DeserializeOwned + serde::Serialize + Default,
@@ -396,13 +396,13 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "figment")]
+    #[cfg(feature = "config")]
     #[derive(Clone, serde::Deserialize)]
     struct FigmentConfig {
         label: String,
     }
 
-    #[cfg(feature = "figment")]
+    #[cfg(feature = "config")]
     #[test]
     fn from_figment_extracts_config() {
         let figment = figment::Figment::new().merge(("label", "figment"));

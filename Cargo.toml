@@ -4,9 +4,9 @@ version = "0.3.0"
 edition = "2024"
 rust-version = "1.94"
 
-[workspace]
-resolver = "2"
-members = [".", "crates/*"]
+[features]
+default = []
+config = ["dep:figment", "dep:serde", "serde/derive"]
 
 [dependencies]
 anyhow = "1.0"
@@ -26,6 +26,6 @@ version = "1.52.3"
 default-features = false
 features = ["net", "rt", "rt-multi-thread", "signal"]
 
-[features]
-default = []
-figment = ["dep:figment", "dep:serde", "serde/derive"]
+[workspace]
+resolver = "2"
+members = [".", "crates/*"]

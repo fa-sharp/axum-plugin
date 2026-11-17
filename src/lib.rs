@@ -8,7 +8,7 @@ pub use axum_plugin_macros::AppState;
 pub use type_map::concurrent::TypeMap;
 
 pub use anyhow;
-#[cfg(feature = "figment")]
+#[cfg(feature = "config")]
 pub use figment;
 
 mod app;

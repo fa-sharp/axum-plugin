@@ -95,7 +95,7 @@ pub struct AppState {
 
 ## Config extraction
 
-With the `figment` feature enabled, typed config can be conveniently extracted from prefixed environment variables, TOML files, or directly from a `figment::Figment`:
+With the `config` feature enabled, typed configuration can be conveniently extracted from prefixed environment variables, TOML files, or directly from a `figment::Figment`:
 
 ```rust
 use axum_plugin::{AdHocPlugin, App, Result, TypeMapState};
